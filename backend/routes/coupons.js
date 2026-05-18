@@ -7,6 +7,12 @@ const { sendSuccess, sendError } = require('../utils/response');
 const router = express.Router();
 
 // GET /api/coupons/validate — Kupon geçerliliği kontrol
+// ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
+// │ SELECT * FROM coupons WHERE code = ?                                   │
+// │ -- Uygulama katmanında kontrol:                                        │
+// │ --   valid_from <= TODAY AND valid_until >= TODAY                       │
+// │ --   used_count < max_uses                                             │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/validate', async (req, res) => {
   try {
     const { code } = req.query;
@@ -37,6 +43,11 @@ router.get('/validate', async (req, res) => {
 });
 
 // GET /api/coupons/my-offers — Kullanıcıya özel fırsatlar
+// ┌─ SQL Karşılığı (OR operatörü + tarih filtresi) ───────────────────────┐
+// │ SELECT * FROM coupons                                                 │
+// │ WHERE (is_user_specific = false OR target_user_id = ?)                │
+// │   AND valid_until >= CURRENT_DATE                                      │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/my-offers', requireAuth, async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];

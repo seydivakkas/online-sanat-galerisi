@@ -15,6 +15,21 @@ router.use(requireAuth);
 // ════════════════════════════════════════
 
 // GET /api/admin/reports/summary
+// ┌─ SQL Karşılığı (Çoklu Aggregate Sorgu) ───────────────────────────────┐
+// │ SELECT COUNT(*) AS totalUsers FROM users;                              │
+// │ SELECT COUNT(*) AS totalArtworks FROM artworks;                        │
+// │ SELECT SUM(total_amount) AS monthlyRevenue FROM orders                 │
+// │   WHERE status IN ('paid', 'shipped', 'delivered');                    │
+// │                                                                       │
+// │ -- En çok favorilenen 5 eser (GROUP BY + COUNT + ORDER BY)            │
+// │ SELECT artwork_id, COUNT(favorite_id) AS like_count                    │
+// │ FROM favorites GROUP BY artwork_id                                     │
+// │ ORDER BY like_count DESC LIMIT 5;                                      │
+// │                                                                       │
+// │ -- Doluluk oranına göre etkinlikler                                    │
+// │ SELECT event_id, title, capacity, current_registrations                │
+// │ FROM events ORDER BY (current_registrations / capacity) DESC LIMIT 5;  │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/reports/summary', requireRole('admin', 'gallery_manager'), async (req, res) => {
   try {
     const totalUsers = await User.count();
@@ -53,6 +68,16 @@ router.get('/reports/summary', requireRole('admin', 'gallery_manager'), async (r
 });
 
 // GET /api/admin/reports/artworks
+// ┌─ SQL Karşılığı (GROUP BY + Aggregate + LEFT JOIN) ───────────────────┐
+// │ SELECT a.artwork_id, a.title, a.price, a.view_count,                  │
+// │   COUNT(DISTINCT r.review_id) AS review_count,                         │
+// │   COUNT(DISTINCT f.favorite_id) AS like_count,                         │
+// │   AVG(r.rating) AS avg_rating                                          │
+// │ FROM artworks a                                                        │
+// │ LEFT JOIN reviews r ON a.artwork_id = r.artwork_id                     │
+// │ LEFT JOIN favorites f ON a.artwork_id = f.artwork_id                   │
+// │ GROUP BY a.artwork_id                                                  │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/reports/artworks', requireRole('admin', 'gallery_manager'), async (req, res) => {
   try {
     const artworks = await Artwork.findAll({
@@ -101,6 +126,12 @@ router.get('/reports/events', requireRole('admin', 'gallery_manager'), async (re
 // ════════════════════════════════════════
 
 // GET /api/admin/users
+// ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
+// │ SELECT user_id, username, email, full_name, role, is_active,          │
+// │   created_at, updated_at                                              │
+// │ FROM users ORDER BY created_at DESC                                    │
+// │ -- NOT: password_hash hariç tutulur (güvenlik)                         │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/users', requireRole('admin'), async (req, res) => {
   try {
     const users = await User.findAll({

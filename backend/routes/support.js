@@ -7,6 +7,13 @@ const { sendSuccess, sendError } = require('../utils/response');
 const router = express.Router();
 
 // POST /api/support/tickets — Yeni destek talebi
+// ┌─ SQL Karşılığı (İki tabloya INSERT — ana kayıt + ilk mesaj) ─────────┐
+// │ INSERT INTO support_tickets (user_id, subject, message, status)       │
+// │ VALUES (?, ?, ?, 'open')                                              │
+// │                                                                       │
+// │ INSERT INTO support_messages (ticket_id, sender_id, message_text)    │
+// │ VALUES (last_insert_rowid(), ?, ?)                                    │
+// └───────────────────────────────────────────────────────────────────────┘
 router.post('/tickets', requireAuth, ticketRules, async (req, res) => {
   try {
     const { subject, message } = req.body;
@@ -30,6 +37,11 @@ router.post('/tickets', requireAuth, ticketRules, async (req, res) => {
 });
 
 // GET /api/support/tickets — Kullanıcının talepleri
+// ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
+// │ SELECT * FROM support_tickets                                         │
+// │ WHERE user_id = ?                                                     │
+// │ ORDER BY created_at DESC                                              │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/tickets', requireAuth, async (req, res) => {
   try {
     const tickets = await SupportTicket.findAll({
@@ -43,6 +55,14 @@ router.get('/tickets', requireAuth, async (req, res) => {
 });
 
 // GET /api/support/tickets/:id — Talep detayı + mesajlar
+// ┌─ SQL Karşılığı (3 tablo JOIN — ticket + mesajlar + gönderici) ───────┐
+// │ SELECT t.*, m.*, u.username, u.full_name, u.role                      │
+// │ FROM support_tickets t                                                │
+// │ LEFT JOIN support_messages m ON t.ticket_id = m.ticket_id            │
+// │ LEFT JOIN users u ON m.sender_id = u.user_id                          │
+// │ WHERE t.ticket_id = ? AND t.user_id = ?                               │
+// │ ORDER BY m.sent_at ASC                                                │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/tickets/:id', requireAuth, async (req, res) => {
   try {
     const ticket = await SupportTicket.findOne({
@@ -62,6 +82,14 @@ router.get('/tickets/:id', requireAuth, async (req, res) => {
 });
 
 // POST /api/support/tickets/:id/messages — Yeni mesaj gönder
+// ┌─ SQL Karşılığı (INSERT + durum UPDATE) ──────────────────────────────┐
+// │ INSERT INTO support_messages (ticket_id, sender_id, message_text)    │
+// │ VALUES (?, ?, ?)                                                      │
+// │                                                                       │
+// │ -- Durum otomatik güncelleme (state machine)                          │
+// │ UPDATE support_tickets SET status = 'in_progress'                     │
+// │ WHERE ticket_id = ? AND status = 'open'                               │
+// └───────────────────────────────────────────────────────────────────────┘
 router.post('/tickets/:id/messages', requireAuth, async (req, res) => {
   try {
     const { message_text } = req.body;

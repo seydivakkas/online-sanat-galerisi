@@ -7,6 +7,17 @@ const { sendSuccess, sendError } = require('../utils/response');
 const router = express.Router();
 
 // POST /api/compare/artworks — Eser karşılaştırma
+// ┌─ SQL Karşılığı (IN + Aggregate) ──────────────────────────────────────┐
+// │ SELECT a.*, ar.name AS sanatci, c.name AS kategori                    │
+// │ FROM artworks a                                                       │
+// │ LEFT JOIN artists ar ON a.artist_id = ar.artist_id                    │
+// │ LEFT JOIN categories c ON a.category_id = c.category_id              │
+// │ WHERE a.artwork_id IN (?, ?, ?)     -- Seçilen eser ID'leri          │
+// │                                                                       │
+// │ -- Her eser için ayrıca:                                              │
+// │ SELECT AVG(rating) AS avg_rating, COUNT(review_id) AS review_count   │
+// │ FROM reviews WHERE artwork_id = ?                                     │
+// └───────────────────────────────────────────────────────────────────────┘
 router.post('/artworks', async (req, res) => {
   try {
     const { artwork_ids } = req.body;
@@ -53,6 +64,15 @@ router.post('/artworks', async (req, res) => {
 });
 
 // POST /api/compare/events — Etkinlik karşılaştırma
+// ┌─ SQL Karşılığı (IN + Aggregate + Hesaplama) ──────────────────────────┐
+// │ SELECT * FROM events WHERE event_id IN (?, ?, ?)                      │
+// │                                                                       │
+// │ -- Her etkinlik için doluluk oranı hesapla:                            │
+// │ -- (current_registrations / capacity) * 100 AS doluluk_yuzde          │
+// │                                                                       │
+// │ SELECT AVG(rating) AS avg_rating, COUNT(review_id) AS review_count   │
+// │ FROM reviews WHERE event_id = ?                                       │
+// └───────────────────────────────────────────────────────────────────────┘
 router.post('/events', async (req, res) => {
   try {
     const { event_ids } = req.body;
@@ -97,6 +117,11 @@ router.post('/events', async (req, res) => {
 });
 
 // POST /api/compare/save — Karşılaştırmayı kaydet
+// ┌─ SQL Karşılığı (JSON veri INSERT) ────────────────────────────────────┐
+// │ INSERT INTO comparisons (user_id, comparison_type, item_ids)          │
+// │ VALUES (?, ?, '[1,2,3]')           -- item_ids JSON array olarak     │
+// │ -- NOT: 1NF ihlali (bilinçli denormalizasyon, geçici veri)            │
+// └───────────────────────────────────────────────────────────────────────┘
 router.post('/save', requireAuth, async (req, res) => {
   try {
     const { comparison_type, item_ids } = req.body;
@@ -117,6 +142,11 @@ router.post('/save', requireAuth, async (req, res) => {
 });
 
 // GET /api/compare/saved — Kaydedilen karşılaştırmalar
+// ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
+// │ SELECT * FROM comparisons                                             │
+// │ WHERE user_id = ?                                                     │
+// │ ORDER BY saved_at DESC                                                │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/saved', requireAuth, async (req, res) => {
   try {
     const comparisons = await Comparison.findAll({

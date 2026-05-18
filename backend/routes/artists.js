@@ -5,6 +5,11 @@ const { sendSuccess, sendError } = require('../utils/response');
 const router = express.Router();
 
 // GET /api/artists — Sanatçıları listele
+// ┌─ SQL Karşılığı (LEFT JOIN — esersiz sanatçılar da gelir) ─────────────┐
+// │ SELECT ar.*, a.artwork_id, a.title, a.price, a.image_url             │
+// │ FROM artists ar                                                       │
+// │ LEFT JOIN artworks a ON ar.artist_id = a.artist_id                    │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/', async (req, res) => {
   try {
     const artists = await Artist.findAll({
@@ -17,6 +22,13 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/artists/:id — Sanatçı profili ve eserleri
+// ┌─ SQL Karşılığı (3 tablo iç içe JOIN) ───────────────────────────────┐
+// │ SELECT ar.*, a.*, c.name AS kategori                                  │
+// │ FROM artists ar                                                       │
+// │ LEFT JOIN artworks a ON ar.artist_id = a.artist_id                    │
+// │ LEFT JOIN categories c ON a.category_id = c.category_id              │
+// │ WHERE ar.artist_id = ?                                                │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/:id', async (req, res) => {
   try {
     const artist = await Artist.findByPk(req.params.id, {
@@ -34,6 +46,9 @@ router.get('/:id', async (req, res) => {
 });
 
 // GET /api/categories — Kategorileri listele
+// ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
+// │ SELECT * FROM categories                                              │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/categories/all', async (req, res) => {
   try {
     const categories = await Category.findAll();

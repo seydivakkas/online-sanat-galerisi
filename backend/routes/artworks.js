@@ -27,6 +27,18 @@ const upload = multer({
 });
 
 // GET /api/artworks — Tüm eserleri listele (pagination, filtre)
+// ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
+// │ SELECT a.*, ar.artist_id, ar.name, c.category_id, c.name             │
+// │ FROM artworks a                                                       │
+// │ LEFT JOIN artists ar ON a.artist_id = ar.artist_id                    │
+// │ LEFT JOIN categories c ON a.category_id = c.category_id              │
+// │ WHERE a.is_available != false                                         │
+// │   AND a.category_id = ?           -- (opsiyonel filtre)               │
+// │   AND a.price BETWEEN ? AND ?     -- (opsiyonel fiyat aralığı)       │
+// │   AND a.title LIKE '%?%'          -- (opsiyonel arama)               │
+// │ ORDER BY a.created_at DESC                                            │
+// │ LIMIT ? OFFSET ?                  -- (sayfalama)                     │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/', optionalAuth, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -71,6 +83,22 @@ router.get('/', optionalAuth, async (req, res) => {
 });
 
 // GET /api/artworks/:id — Eser detayı
+// ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
+// │ SELECT a.*, ar.*, c.*                                                 │
+// │ FROM artworks a                                                       │
+// │ LEFT JOIN artists ar ON a.artist_id = ar.artist_id                    │
+// │ LEFT JOIN categories c ON a.category_id = c.category_id              │
+// │ LEFT JOIN reviews r ON a.artwork_id = r.artwork_id                    │
+// │ LEFT JOIN users u ON r.user_id = u.user_id                            │
+// │ WHERE a.artwork_id = ?                                                │
+// │                                                                       │
+// │ -- Ayrıca: Ortalama puan hesaplama (Aggregate Subquery)               │
+// │ SELECT AVG(rating) AS avg_rating, COUNT(review_id) AS review_count    │
+// │ FROM reviews WHERE artwork_id = ?                                     │
+// │                                                                       │
+// │ -- Ayrıca: Görüntülenme sayısını artır                                │
+// │ UPDATE artworks SET view_count = view_count + 1 WHERE artwork_id = ?  │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/:id', optionalAuth, async (req, res) => {
   try {
     const artwork = await Artwork.findByPk(req.params.id, {
@@ -126,6 +154,13 @@ router.get('/:id/image', async (req, res) => {
 });
 
 // GET /api/artworks/:id/reviews — Eser yorumları
+// ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
+// │ SELECT r.*, u.username, u.full_name                                   │
+// │ FROM reviews r                                                        │
+// │ INNER JOIN users u ON r.user_id = u.user_id                           │
+// │ WHERE r.artwork_id = ?                                                │
+// │ ORDER BY r.created_at DESC                                            │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/:id/reviews', async (req, res) => {
   try {
     const reviews = await Review.findAll({
@@ -142,6 +177,11 @@ router.get('/:id/reviews', async (req, res) => {
 });
 
 // GET /api/artworks/:id/avg-rating — Ortalama puan
+// ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
+// │ SELECT AVG(rating) AS avg_rating, COUNT(review_id) AS review_count    │
+// │ FROM reviews                                                          │
+// │ WHERE artwork_id = ?                                                  │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/:id/avg-rating', async (req, res) => {
   try {
     const result = await Review.findOne({

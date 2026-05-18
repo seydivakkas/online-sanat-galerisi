@@ -9,6 +9,21 @@ const { sendSuccess, sendError } = require('../utils/response');
 const router = express.Router();
 
 // POST /api/reviews — Yorum ekle (satın alma / katılım kontrolü)
+// ┌─ SQL Karşılığı (İş kuralı doğrulaması + INSERT) ───────────────────────┐
+// │ -- 1. Satın alma kontrolü (INNER JOIN + Subquery)                      │
+// │ SELECT o.order_id FROM orders o                                       │
+// │ INNER JOIN order_items oi ON o.order_id = oi.order_id                 │
+// │ WHERE o.user_id = ? AND o.status IN ('paid','shipped','delivered')    │
+// │   AND oi.item_type = 'artwork' AND oi.item_id = ?                    │
+// │                                                                       │
+// │ -- 2. Katılım kontrolü                                                 │
+// │ SELECT * FROM reservations                                            │
+// │   WHERE user_id = ? AND event_id = ? AND status = 'confirmed'        │
+// │                                                                       │
+// │ -- 3. Yorum oluştur                                                   │
+// │ INSERT INTO reviews (user_id, artwork_id, event_id, rating,          │
+// │   comment, is_verified) VALUES (?, ?, ?, ?, ?, 1)                     │
+// └───────────────────────────────────────────────────────────────────────┘
 router.post('/', requireAuth, reviewRules, async (req, res) => {
   try {
     const { artwork_id, event_id, rating, comment } = req.body;
@@ -87,6 +102,16 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/reviews/:id/vote — Yorum oylama
+// ┌─ SQL Karşılığı (UNIQUE kontrol + INSERT) ───────────────────────────┐
+// │ -- 1. Çift oy kontrolü (UNIQUE constraint)                              │
+// │ SELECT * FROM review_votes                                            │
+// │   WHERE review_id = ? AND user_id = ?                                 │
+// │   -- Eğer varsa: 409 Conflict dön                                     │
+// │                                                                       │
+// │ -- 2. Oy ekle                                                         │
+// │ INSERT INTO review_votes (review_id, user_id, is_helpful)             │
+// │   VALUES (?, ?, ?)                                                    │
+// └───────────────────────────────────────────────────────────────────────┘
 router.post('/:id/vote', requireAuth, async (req, res) => {
   try {
     const { is_helpful } = req.body;

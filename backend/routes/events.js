@@ -7,6 +7,16 @@ const { sendSuccess, sendError } = require('../utils/response');
 const router = express.Router();
 
 // GET /api/events — Aktif etkinlikleri listele
+// ┌─ SQL Karşılığı (WHERE + LIKE + JOIN + LIMIT/OFFSET) ─────────────────┐
+// │ SELECT e.*, u.username, u.full_name AS organizator                    │
+// │ FROM events e                                                         │
+// │ LEFT JOIN users u ON e.organizer_id = u.user_id                       │
+// │ WHERE e.is_active = 1                                                 │
+// │   AND e.event_date >= ?             -- (opsiyonel: gelecek filtresi)  │
+// │   AND e.title LIKE '%?%'            -- (opsiyonel: arama)            │
+// │ ORDER BY e.event_date ASC                                             │
+// │ LIMIT ? OFFSET ?                    -- (sayfalama)                   │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/', async (req, res) => {
   try {
     const where = { is_active: true };
@@ -40,6 +50,21 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/events/:id — Etkinlik detayı
+// ┌─ SQL Karşılığı (3 tablo JOIN + Aggregate) ───────────────────────────┐
+// │ SELECT e.*, u.username, u.full_name                                   │
+// │ FROM events e                                                         │
+// │ LEFT JOIN users u ON e.organizer_id = u.user_id                       │
+// │ LEFT JOIN reviews r ON e.event_id = r.event_id                        │
+// │ LEFT JOIN users u2 ON r.user_id = u2.user_id                          │
+// │ WHERE e.event_id = ?                                                  │
+// │                                                                       │
+// │ -- Ortalama puan hesaplama:                                            │
+// │ SELECT AVG(rating) AS avg_rating, COUNT(review_id) AS review_count   │
+// │ FROM reviews WHERE event_id = ?                                       │
+// │                                                                       │
+// │ -- Kalan kontenjan (hesaplanmış alan):                                │
+// │ -- capacity - current_registrations AS remaining_spots                 │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/:id', async (req, res) => {
   try {
     const event = await Event.findByPk(req.params.id, {

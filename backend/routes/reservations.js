@@ -8,6 +8,24 @@ const { sendSuccess, sendError } = require('../utils/response');
 const router = express.Router();
 
 // POST /api/reservations — Rezervasyon oluştur
+// ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
+// │ -- 1. Kapasite kontrolü                                                │
+// │ SELECT capacity, current_registrations FROM events                     │
+// │   WHERE event_id = ? AND is_active = 1                                │
+// │                                                                       │
+// │ -- 2. Çakışma kontrolü (UNIQUE iş mantığı)                             │
+// │ SELECT * FROM reservations                                            │
+// │   WHERE user_id = ? AND event_id = ? AND status != 'cancelled'        │
+// │                                                                       │
+// │ -- 3. Rezervasyon oluştur                                              │
+// │ INSERT INTO reservations (user_id, event_id, participant_count,       │
+// │   reservation_date, reservation_time, status)                         │
+// │   VALUES (?, ?, ?, ?, ?, 'pending')                                   │
+// │                                                                       │
+// │ -- 4. Kontenjanı güncelle (denormalize alan)                           │
+// │ UPDATE events SET current_registrations = current_registrations + ?   │
+// │   WHERE event_id = ?                                                  │
+// └───────────────────────────────────────────────────────────────────────┘
 router.post('/', requireAuth, reservationRules, async (req, res) => {
   try {
     const { event_id, participant_count, reservation_date, reservation_time } = req.body;
@@ -53,6 +71,13 @@ router.post('/', requireAuth, reservationRules, async (req, res) => {
 });
 
 // GET /api/reservations — Kullanıcının rezervasyonları
+// ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
+// │ SELECT r.*, e.*                                                       │
+// │ FROM reservations r                                                   │
+// │ INNER JOIN events e ON r.event_id = e.event_id                        │
+// │ WHERE r.user_id = ?                                                   │
+// │ ORDER BY r.created_at DESC                                            │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/', requireAuth, async (req, res) => {
   try {
     const reservations = await Reservation.findAll({
@@ -115,6 +140,14 @@ router.put('/:id', requireAuth, async (req, res) => {
 });
 
 // DELETE /api/reservations/:id — İptal et
+// ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
+// │ UPDATE reservations SET status = 'cancelled'                           │
+// │   WHERE reservation_id = ? AND user_id = ?                            │
+// │                                                                       │
+// │ -- Kontenjanı geri aç (denormalize alanı güncelle)                     │
+// │ UPDATE events SET current_registrations = current_registrations - ?   │
+// │   WHERE event_id = ?                                                  │
+// └───────────────────────────────────────────────────────────────────────┘
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const reservation = await Reservation.findOne({

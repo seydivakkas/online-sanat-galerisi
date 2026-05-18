@@ -7,6 +7,14 @@ const { sendSuccess, sendError } = require('../utils/response');
 const router = express.Router();
 
 // PUT /api/users/profile — Profil güncelle
+// ┌─ SQL Karşılığı (UNIQUE kontrol + UPDATE) ─────────────────────────────┐
+// │ -- 1. Kullanıcı adı benzersizlik kontrolü                              │
+// │ SELECT * FROM users WHERE username = ? AND user_id != ?               │
+// │                                                                       │
+// │ -- 2. Profili güncelle                                                │
+// │ UPDATE users SET full_name = ?, phone = ?, username = ?               │
+// │ WHERE user_id = ?                                                     │
+// └───────────────────────────────────────────────────────────────────────┘
 router.put('/profile', requireAuth, async (req, res) => {
   try {
     const { full_name, phone, username } = req.body;
@@ -38,6 +46,13 @@ router.put('/profile', requireAuth, async (req, res) => {
 });
 
 // PUT /api/users/password — Şifre değiştir
+// ┌─ SQL Karşılığı (SELECT + bcrypt compare + UPDATE) ───────────────────┐
+// │ SELECT password_hash FROM users WHERE user_id = ?                     │
+// │ -- bcrypt.compare(current_password, stored_hash)                       │
+// │ -- Eşleşirse:                                                         │
+// │ UPDATE users SET password_hash = '$2a$12$...'                         │
+// │ WHERE user_id = ?                                                     │
+// └───────────────────────────────────────────────────────────────────────┘
 router.put('/password', requireAuth, async (req, res) => {
   try {
     const { current_password, new_password } = req.body;
@@ -62,6 +77,12 @@ router.put('/password', requireAuth, async (req, res) => {
 });
 
 // GET /api/users/profile — Profil bilgisi
+// ┌─ SQL Karşılığı (SELECT — hassas alanlar hariç) ──────────────────────┐
+// │ SELECT user_id, username, email, full_name, phone, role,              │
+// │   is_active, created_at, updated_at                                   │
+// │ FROM users WHERE user_id = ?                                          │
+// │ -- NOT: password_hash hariç tutulur (güvenlik — hassas veri)           │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/profile', requireAuth, async (req, res) => {
   try {
     const user = await User.findByPk(req.user.id, {
@@ -74,6 +95,11 @@ router.get('/profile', requireAuth, async (req, res) => {
 });
 
 // PATCH /api/users/:id/status — Kullanıcı durumunu güncelle (Admin)
+// ┌─ SQL Karşılığı (UPDATE + yetki kontrolü) ───────────────────────────┐
+// │ UPDATE users SET is_active = ?                                         │
+// │ WHERE user_id = ? AND user_id != ?  -- Kendini deaktif edemez         │
+// │ -- Sadece role='admin' olan kullanıcı bu işlemi yapabilir              │
+// └───────────────────────────────────────────────────────────────────────┘
 router.patch('/:id/status', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const { is_active } = req.body;

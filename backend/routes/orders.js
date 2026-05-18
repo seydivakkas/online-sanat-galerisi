@@ -9,6 +9,39 @@ const { sendSuccess, sendError } = require('../utils/response');
 const router = express.Router();
 
 // POST /api/orders — Sipariş oluştur
+// ┌─ SQL Karşılığı (TRANSACTION — Atomik İşlem) ──────────────────────────────┐
+// │ BEGIN TRANSACTION;                                                     │
+// │                                                                       │
+// │ -- 1. Stok kontrolü                                                   │
+// │ SELECT * FROM artworks WHERE artwork_id = ? AND stock_quantity >= ?    │
+// │                                                                       │
+// │ -- 2. Kupon kontrolü                                                  │
+// │ SELECT * FROM coupons WHERE code = ?                                  │
+// │   AND valid_from <= NOW() AND valid_until >= NOW()                     │
+// │                                                                       │
+// │ -- 3. Sipariş oluştur                                                 │
+// │ INSERT INTO orders (user_id, total_amount, status, payment_method,    │
+// │   coupon_id, discount_amount) VALUES (?, ?, 'pending', ?, ?, ?)       │
+// │                                                                       │
+// │ -- 4. Sipariş kalemleri (POLİMORFİK INSERT)                           │
+// │ INSERT INTO order_items (order_id, item_type, item_id, quantity,      │
+// │   unit_price) VALUES (?, 'artwork', ?, ?, ?)                          │
+// │ INSERT INTO order_items (order_id, item_type, item_id, quantity,      │
+// │   unit_price) VALUES (?, 'event', ?, ?, ?)                            │
+// │                                                                       │
+// │ -- 5. Stok düşür                                                      │
+// │ UPDATE artworks SET stock_quantity = stock_quantity - ?                │
+// │   WHERE artwork_id = ?                                                │
+// │                                                                       │
+// │ -- 6. Etkinlik kontenjanı güncelle                                     │
+// │ UPDATE events SET current_registrations = current_registrations + ?   │
+// │   WHERE event_id = ?                                                  │
+// │                                                                       │
+// │ -- 7. Kupon kullanım sayısı artır                                      │
+// │ UPDATE coupons SET used_count = used_count + 1 WHERE coupon_id = ?    │
+// │                                                                       │
+// │ COMMIT;  -- Herhangi bir adım başarısız olursa: ROLLBACK;             │
+// └───────────────────────────────────────────────────────────────────────┘
 router.post('/', requireAuth, orderRules, async (req, res) => {
   const t = await sequelize.transaction();
   try {
@@ -132,6 +165,10 @@ router.post('/', requireAuth, orderRules, async (req, res) => {
 });
 
 // POST /api/orders/:id/confirm — Ödeme onayla
+// ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
+// │ UPDATE orders SET status = 'paid'                                      │
+// │ WHERE order_id = ? AND user_id = ? AND status = 'pending'             │
+// └───────────────────────────────────────────────────────────────────────┘
 router.post('/:id/confirm', requireAuth, async (req, res) => {
   try {
     const order = await Order.findOne({
@@ -151,6 +188,19 @@ router.post('/:id/confirm', requireAuth, async (req, res) => {
 });
 
 // GET /api/orders — Kullanıcının siparişleri
+// ┌─ SQL Karşılığı (Polimorfik JOIN) ─────────────────────────────────────┐
+// │ SELECT o.*, oi.*,                                                     │
+// │   CASE WHEN oi.item_type = 'artwork'                                  │
+// │     THEN a.title ELSE e.title END AS urun_adi                         │
+// │ FROM orders o                                                         │
+// │ INNER JOIN order_items oi ON o.order_id = oi.order_id                 │
+// │ LEFT JOIN artworks a ON oi.item_type='artwork'                        │
+// │   AND oi.item_id = a.artwork_id                                       │
+// │ LEFT JOIN events e ON oi.item_type='event'                            │
+// │   AND oi.item_id = e.event_id                                         │
+// │ WHERE o.user_id = ?                                                   │
+// │ ORDER BY o.created_at DESC                                            │
+// └───────────────────────────────────────────────────────────────────────┘
 router.get('/', requireAuth, async (req, res) => {
   try {
     const orders = await Order.findAll({

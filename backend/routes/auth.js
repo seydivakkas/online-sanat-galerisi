@@ -9,6 +9,18 @@ const { sendSuccess, sendError } = require('../utils/response');
 const router = express.Router();
 
 // POST /api/auth/register — Kayıt
+// ┌─ SQL Karşılığı (UNIQUE kontrol + INSERT + bcrypt hash) ──────────────┐
+// │ -- 1. E-posta benzersizlik kontrolü (UNIQUE constraint)               │
+// │ SELECT * FROM users WHERE email = ?                                   │
+// │                                                                       │
+// │ -- 2. Kullanıcı adı benzersizlik kontrolü (UNIQUE constraint)          │
+// │ SELECT * FROM users WHERE username = ?                                │
+// │                                                                       │
+// │ -- 3. Şifre hash'leme (bcrypt, salt=12, uygulama katmanı)             │
+// │ -- 4. Kayıt oluştur                                                   │
+// │ INSERT INTO users (username, email, password_hash, full_name, phone)  │
+// │ VALUES (?, ?, '$2a$12$...', ?, ?)                                      │
+// └───────────────────────────────────────────────────────────────────────┘
 router.post('/register', registerRules, async (req, res) => {
   try {
     const { username, email, password, full_name, phone } = req.body;
@@ -48,6 +60,13 @@ router.post('/register', registerRules, async (req, res) => {
 });
 
 // POST /api/auth/login — Giriş
+// ┌─ SQL Karşılığı (SELECT + bcrypt compare) ────────────────────────────┐
+// │ SELECT * FROM users WHERE email = ?                                   │
+// │ -- Uygulama katmanında:                                               │
+// │ --   bcrypt.compare(input_password, stored_hash)                       │
+// │ --   Eşleşirse: JWT token üret (24 saat geçerli)                       │
+// │ --   Eşleşmezse: 401 Unauthorized                                     │
+// └───────────────────────────────────────────────────────────────────────┘
 router.post('/login', loginRules, async (req, res) => {
   try {
     const { email, password } = req.body;
