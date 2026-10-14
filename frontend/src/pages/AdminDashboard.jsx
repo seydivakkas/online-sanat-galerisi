@@ -3,6 +3,8 @@ import { toast } from 'react-hot-toast';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend } from 'chart.js';
 import { adminAPI } from '../services/api';
+import AdminCatalogManagement from './AdminCatalogManagement';
+import AdminSupportManagement from './AdminSupportManagement';
 import { useAuth } from '../context/AuthContext';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
@@ -18,8 +20,10 @@ export default function AdminDashboard() {
     { key: 'dashboard', label: '📊 Dashboard', roles: ['admin', 'gallery_manager'] },
     { key: 'users', label: '👥 Kullanıcılar', roles: ['admin'] },
     { key: 'artworks', label: '🖼️ Eserler', roles: ['admin', 'gallery_manager'] },
+    { key: 'artists', label: '🎨 Sanatçılar & Kategoriler', roles: ['admin', 'gallery_manager'] },
     { key: 'events', label: '📅 Etkinlikler', roles: ['admin', 'gallery_manager'] },
     { key: 'orders', label: '📦 Siparişler', roles: ['admin', 'gallery_manager'] },
+    { key: 'support', label: '📨 Destek Talepleri', roles: ['admin', 'gallery_manager'] },
     { key: 'reviews', label: '💬 Yorumlar', roles: ['admin', 'gallery_manager'] },
     { key: 'coupons', label: '🎟️ Kuponlar', roles: ['admin'] },
   ];
@@ -40,8 +44,10 @@ export default function AdminDashboard() {
       {tab === 'dashboard' && <DashboardTab />}
       {tab === 'users' && isAdmin && <UsersTab />}
       {tab === 'artworks' && <ArtworksTab />}
+      {tab === 'artists' && <AdminCatalogManagement />}
       {tab === 'events' && <EventsTab />}
       {tab === 'orders' && <OrdersTab />}
+      {tab === 'support' && <AdminSupportManagement />}
       {tab === 'reviews' && <ReviewsTab />}
       {tab === 'coupons' && isAdmin && <CouponsTab />}
     </div>
