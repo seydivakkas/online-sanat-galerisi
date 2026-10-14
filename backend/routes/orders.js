@@ -10,6 +10,7 @@ const { Order, OrderItem, Artwork, Event, Reservation, Coupon } = require('../mo
 const { requireAuth } = require('../middleware/auth');
 const { orderRules } = require('../middleware/validate');
 const sequelize = require('../config/database');
+const { withInventoryTransaction } = require('../services/transactionGate');
 const { sendSuccess, sendError } = require('../utils/response');
 
 const router = express.Router();
@@ -27,7 +28,7 @@ router.post('/', requireAuth, orderRules, async (req, res) => {
   try {
     // Clear stale holds before attempting new conditional capacity updates.
     await expirePendingOrders();
-    const orderId = await sequelize.transaction(async transaction => {
+    const orderId = await withInventoryTransaction(async transaction => {
       let totalCents = 0;
       const orderItems = [];
       for (const item of items) {
