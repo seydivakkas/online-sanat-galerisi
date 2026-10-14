@@ -32,6 +32,9 @@ jobs:
       - name: Payment status and audit integration tests
         working-directory: backend
         run: npm run test:payments
+      - name: P1 booking and inventory integrity tests
+        working-directory: backend
+        run: npm run test:integrity
       - name: Scan production dependencies
         working-directory: backend
         run: npm audit --omit=dev --audit-level=high
