@@ -458,7 +458,7 @@ function OrdersTab() {
                 <td>{new Date(o.created_at).toLocaleDateString('tr-TR')}</td>
                 <td>
                   <div className="d-flex flex-wrap gap-1">
-                    {isAdmin && o.status === 'pending' && o.payment_method === 'bank_transfer' && (
+                    {isAdmin && o.status === 'pending' && o.payment_method === 'bank_transfer' && !o.items?.some(item => item.item_type === 'event') && (
                       <button className="btn btn-sm btn-outline-success" disabled={busy} onClick={() => startVerification(o)}>Banka Kaydını Doğrula</button>
                     )}
                     {o.status === 'paid' && (
