@@ -72,7 +72,7 @@ router.post('/login', loginRules, async (req, res) => {
     const { email, password } = req.body;
     const user = await User.findOne({ where: { email } });
 
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+    if (!user || !user.is_active || !(await bcrypt.compare(password, user.password_hash))) {
       return sendError(res, 'Geçersiz e-posta veya şifre', 401);
     }
 
