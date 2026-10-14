@@ -281,7 +281,7 @@ router.post('/', requireAuth, requireRole('admin', 'gallery_manager'), receiveIm
     const qty = Number(stock_quantity === undefined ? 1 : stock_quantity);
     const amount = Number(price);
     if (typeof title !== 'string' || !title.trim() || title.trim().length > 150 ||
-      !Number.isFinite(amount) || amount < 0 || !/^\\d+(?:\\.\\d{1,2})?$/.test(String(price)) ||
+      !Number.isFinite(amount) || amount < 0 || !/^\d+(?:\.\d{1,2})?$/.test(String(price)) ||
       !Number.isSafeInteger(qty) || qty < 0 ||
       !Number.isSafeInteger(Number(artist_id)) || Number(artist_id) < 1 ||
       !Number.isSafeInteger(Number(category_id)) || Number(category_id) < 1) {
