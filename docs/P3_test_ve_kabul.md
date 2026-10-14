@@ -11,7 +11,7 @@ Durum: **Ön kabul ve CI geliştirmesi**. Bu aşama P2 üzerine kuruludur. Önce
 | P1 | Etkinlik, tarih, koltuk/stok, süre aşımı, iade, yarış | 17/17 PASS |
 | P1.3 | Sanatçı, kategori, destek yetkileri, kayıt koruma | 14/14 PASS |
 | P2 | SQLite eski şema, backup, kalıcı kayıtlar, idempotency | 3/3 PASS |
-| P3 Windows | Kurulum, React derleme, API başlangıcı, local DB ve secret | CI iş akışına eklendi; sonuç ayrıca değerlendirilir |
+| P3 Windows | Node.js 22/npm ci, React derleme, PowerShell, API, SQLite ve JWT secret | GitHub Actions #38558088839 PASS |
 | Güvenlik audit | Production bağımlılıklar | FAIL, 18 açık bulgu |
 
 ## Gerçek kullanıcı kabulünde yapılacaklar
@@ -30,6 +30,6 @@ Durum: **Ön kabul ve CI geliştirmesi**. Bu aşama P2 üzerine kuruludur. Önce
 
 ## Release kapısı
 
-CI Linux ve Windows PASS olmadan release yok. Bağımlılık güvenlik bulguları, gerçek veritabanı şema geçişi veya finansal mutabakat belirsizse karar HOLD. Sentetik CI testlerini üretim finansal kanıtı olarak sunmak yasaktır.
+Linux sentetik ve Windows runner kontrolleri PASS oldu; ancak CI tek başına üretim kabulü değildir. Bağımlılık ve gerçek cihaz engelleri giderilmeden release yok. Bağımlılık güvenlik bulguları, gerçek veritabanı şema geçişi veya finansal mutabakat belirsizse karar HOLD. Sentetik CI testlerini üretim finansal kanıtı olarak sunmak yasaktır.
 
 Bu belge üzerinde tamamlanmayan kabul maddeleri sonuç elde edilmeden PASS işaretlenmeyecek. Mevcut değişiklikler Draft PR'da korunur; master değiştirilmez.
