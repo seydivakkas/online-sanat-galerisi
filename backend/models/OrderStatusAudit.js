@@ -6,7 +6,7 @@ const sequelize = require('../config/database');
 const OrderStatusAudit = sequelize.define('OrderStatusAudit', {
   audit_id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
   order_id: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'orders', key: 'order_id' } },
-  actor_id: { type: DataTypes.INTEGER, allowNull: false, references: { model: 'users', key: 'user_id' } },
+  actor_id: { type: DataTypes.INTEGER, allowNull: true, references: { model: 'users', key: 'user_id' } },
   action: { type: DataTypes.STRING(40), allowNull: false },
   from_status: { type: DataTypes.STRING(20), allowNull: false },
   to_status: { type: DataTypes.STRING(20), allowNull: false },
