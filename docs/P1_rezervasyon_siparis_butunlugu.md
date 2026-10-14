@@ -44,6 +44,7 @@ Yeni sipariş:
 ## 3. Atomiklik ve iptal
 
 - `services/inventory.js`: stok ve kontenjan değişiklikleri tek SQL koşullu UPDATE içindedir; son stok/koltuk iki talebe verilmez. Negatif stok veya kayıt sayısı üretmemek için artış/azalışlar sınırlarla korunur.
+- `services/transactionGate.js`: SQLite kullanılırken aynı Node.js sürecindeki stok/ödeme değiştiren transaction'ları sıraya alır; SQLite tek bağlantıda paralel `BEGIN` çakışması giderildi. PostgreSQL'de bu yerel geçit kullanılmaz, koşullu SQL UPDATE korunur. Çok işlemli SQLite ve PostgreSQL paralel yük kabulü ayrıca yapılmalıdır.
 - `services/orderHolds.js`: siparişin durum değişikliği, stok iadesi, bağlantılı rezervasyonun iptali, kupon sayacının geri alınması ve audit kaydı tek **Sequelize transaction** içindedir.
 - `services/orderLifecycle.js`: banka ödeme onayı ve bağlı rezervasyonların kesinleştirilmesi, durum kaydıyla beraber tek transaction'da yapılır.
 - `PENDING_ORDER_TTL_MINUTES`: 15–10080 dakika aralığı; varsayılan **1440 dakika (24 saat)**. Süre, API isteğinin sunucu zamanından hesaplanır. Sunucu açılışında, dakikada bir ve ilgili sipariş sorgularında/işlemlerinde bekleyenler serbest bırakılır.
@@ -75,10 +76,10 @@ npm ci
 npm run build
 ```
 
-GitHub Actions run `38551966327`:
+GitHub Actions run `38552638566` (paralel koltuk testi dahil):
 - JWT/görsel güvenliği **10/10 PASS**
 - Ödeme ve audit güvenliği **11/11 PASS**
-- P1 rezervasyon/sipariş bütünlüğü **14/14 PASS**
+- P1 rezervasyon/sipariş bütünlüğü **17/17 PASS** (ücretsiz kayıt güncelleme/iptal, sanat eseri iade-stok restorasyonu, iki eşzamanlı son-koltuk talebi dahil)
 - React build **PASS**
 - `npm audit` **FAIL** — genel bağımlılıklar düzeltilecek.
 
