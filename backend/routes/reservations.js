@@ -2,6 +2,7 @@ const express = require('express');
 const { Op } = require('sequelize');
 const { Reservation, Event } = require('../models');
 const sequelize = require('../config/database');
+const { withInventoryTransaction } = require('../services/transactionGate');
 const { count, validEventSlot, reserveEvent, releaseEvent } = require('../services/inventory');
 const { requireAuth } = require('../middleware/auth');
 const { reservationRules } = require('../middleware/validate');
@@ -33,7 +34,7 @@ const router = express.Router();
 router.post('/', requireAuth, reservationRules, async (req, res) => {
   const { event_id, participant_count, reservation_date, reservation_time } = req.body;
   try {
-    const booking = await sequelize.transaction(async transaction => {
+    const booking = await withInventoryTransaction(async transaction => {
       const event = await Event.findByPk(event_id, { transaction });
       if (!event) throw Object.assign(new Error('Etkinlik bulunamadı'), { statusCode: 404 });
       if (Number(event.price || 0) !== 0) {
@@ -98,7 +99,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 // PUT /api/reservations/:id — Güncelle
 router.put('/:id', requireAuth, async (req, res) => {
   try {
-    const result = await sequelize.transaction(async transaction => {
+    const result = await withInventoryTransaction(async transaction => {
       const reservation = await Reservation.findOne({
         where: { reservation_id: req.params.id, user_id: req.user.id }, transaction
       });
@@ -142,7 +143,7 @@ router.put('/:id', requireAuth, async (req, res) => {
 // └───────────────────────────────────────────────────────────────────────┘
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
-    await sequelize.transaction(async transaction => {
+    await withInventoryTransaction(async transaction => {
       const reservation = await Reservation.findOne({
         where: { reservation_id: req.params.id, user_id: req.user.id }, transaction
       });
