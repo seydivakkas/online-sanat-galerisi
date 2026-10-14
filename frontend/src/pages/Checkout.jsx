@@ -6,7 +6,7 @@ import { orderAPI, couponAPI } from '../services/api';
 
 export default function Checkout() {
   const { cart, removeFromCart, updateQuantity, totalAmount, clearCart } = useCart();
-  const [paymentMethod, setPaymentMethod] = useState('bank_transfer');
+  const paymentMethod = 'bank_transfer';
   const [couponCode, setCouponCode] = useState('');
   const [discount, setDiscount] = useState(0);
   const [loading, setLoading] = useState(false);
