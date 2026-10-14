@@ -43,9 +43,9 @@ jobs:
           npm run test:integrity
           npm run test:admin
           npm run test:migrations
-      - name: Verify zero high and critical production advisories
+      - name: Verify zero production dependency advisories (all severities)
         working-directory: backend
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --audit-level=low
       - name: Save only reviewed lockfile into this trusted branch
         if: success()
         env:
