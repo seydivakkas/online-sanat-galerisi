@@ -294,14 +294,15 @@ router.put('/events/:id', requireRole('admin', 'gallery_manager'), async (req, r
       if (data[key] !== undefined) updates[key] = data[key];
     }
     const conditions = { event_id: event.event_id };
-    if (changedSlot) conditions.current_registrations = 0;
+    const priceChanged = data.price !== undefined && Number(data.price) !== Number(event.price);
+    if (changedSlot || priceChanged) conditions.current_registrations = 0;
     if (data.capacity !== undefined) {
       const proposed = Number(data.capacity);
       if (!Number.isSafeInteger(proposed) || proposed < 1) {
         return sendError(res, 'Kapasite pozitif tam sayı olmalı', 400);
       }
       conditions.current_registrations = {
-        ...(changedSlot ? { [Op.eq]: 0 } : {}), [Op.lte]: proposed
+        ...((changedSlot || priceChanged) ? { [Op.eq]: 0 } : {}), [Op.lte]: proposed
       };
     }
     if (data.price !== undefined && Number(data.price) !== Number(event.price) &&
