@@ -8,6 +8,7 @@ const Event = require('./Event');
 const Reservation = require('./Reservation');
 const Order = require('./Order');
 const OrderItem = require('./OrderItem');
+const OrderStatusAudit = require('./OrderStatusAudit');
 const Favorite = require('./Favorite');
 const Review = require('./Review');
 const ReviewVote = require('./ReviewVote');
@@ -46,6 +47,12 @@ Order.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 // Order → OrderItem
 Order.hasMany(OrderItem, { foreignKey: 'order_id', as: 'items' });
 OrderItem.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
+
+// Order → immutable state history
+Order.hasMany(OrderStatusAudit, { foreignKey: 'order_id', as: 'statusAudit' });
+OrderStatusAudit.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
+User.hasMany(OrderStatusAudit, { foreignKey: 'actor_id', as: 'orderActions' });
+OrderStatusAudit.belongsTo(User, { foreignKey: 'actor_id', as: 'actor' });
 
 // Artwork → ArtworkImage
 Artwork.hasMany(ArtworkImage, { foreignKey: 'artwork_id', as: 'images' });
@@ -125,6 +132,7 @@ module.exports = {
   Reservation,
   Order,
   OrderItem,
+  OrderStatusAudit,
   Favorite,
   Review,
   ReviewVote,
