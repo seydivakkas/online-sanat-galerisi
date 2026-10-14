@@ -154,6 +154,8 @@ export const adminAPI = {
   // Siparişler
   getOrders: () => api.get('/admin/orders'),
   updateOrderStatus: (id, status) => api.patch(`/admin/orders/${id}/status`, { status }),
+  verifyBankTransfer: (id, data) => api.post(`/admin/orders/${id}/verify-bank-transfer`, data),
+  getOrderAudit: (id) => api.get(`/admin/orders/${id}/audit`),
   // Yorumlar
   getReviews: () => api.get('/admin/reviews'),
   deleteReview: (id) => api.delete(`/admin/reviews/${id}`),
