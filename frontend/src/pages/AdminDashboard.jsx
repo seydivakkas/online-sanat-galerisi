@@ -367,18 +367,69 @@ function EventsTab() {
 //  SİPARİŞ YÖNETİMİ SEKMESİ
 // ═══════════════════════════════════════════════
 function OrdersTab() {
+  const { isAdmin } = useAuth();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [proofOrder, setProofOrder] = useState(null);
+  const [checked, setChecked] = useState(false);
+  const [proof, setProof] = useState({
+    payment_reference: '', verified_amount: '', evidence_date: '',
+    evidence_source: 'bank_statement', evidence_note: ''
+  });
+  const [history, setHistory] = useState({ orderId: null, entries: [] });
 
   const load = () => {
     setLoading(true);
-    adminAPI.getOrders().then(r => setOrders(r.data || [])).catch(() => {}).finally(() => setLoading(false));
+    adminAPI.getOrders().then(r => setOrders(r.data || []))
+      .catch(() => toast.error('Siparişler yüklenemedi'))
+      .finally(() => setLoading(false));
   };
   useEffect(load, []);
 
   const updateStatus = async (id, status) => {
-    try { await adminAPI.updateOrderStatus(id, status); toast.success('Durum güncellendi'); load(); }
-    catch (err) { toast.error(err.response?.data?.error || 'Hata'); }
+    if (!window.confirm('Siparişin yeni durumu: ' + status + '. Onaylıyor musunuz?')) return;
+    setBusy(true);
+    try {
+      await adminAPI.updateOrderStatus(id, status);
+      toast.success('Durum ve denetim kaydı güncellendi');
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Durum değiştirilemedi');
+    } finally { setBusy(false); }
+  };
+
+  const startVerification = (o) => {
+    setProofOrder(o.order_id);
+    setChecked(false);
+    setProof({
+      payment_reference: '', verified_amount: String(o.total_amount),
+      evidence_date: '', evidence_source: 'bank_statement', evidence_note: ''
+    });
+  };
+  const verifyTransfer = async (event) => {
+    event.preventDefault();
+    if (!checked) {
+      toast.error('Banka kaydını kontrol ettiğinizi onaylamalısınız');
+      return;
+    }
+    setBusy(true);
+    try {
+      await adminAPI.verifyBankTransfer(proofOrder, proof);
+      toast.success('Manuel banka kontrolü denetim kaydıyla işlendi');
+      setProofOrder(null);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Banka kontrolü kaydedilemedi');
+    } finally { setBusy(false); }
+  };
+  const viewAudit = async (id) => {
+    try {
+      const r = await adminAPI.getOrderAudit(id);
+      setHistory({ orderId: id, entries: r.data || [] });
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Denetim geçmişi yüklenemedi');
+    }
   };
 
   const statusColors = { pending: 'warning', paid: 'info', shipped: 'primary', delivered: 'success', cancelled: 'danger' };
@@ -387,28 +438,106 @@ function OrdersTab() {
   if (loading) return <div className="text-center py-5"><div className="spinner-border"></div></div>;
 
   return (
-    <div className="table-responsive">
-      <table className="table table-hover table-bordered align-middle">
-        <thead className="table-dark"><tr><th>ID</th><th>Müşteri</th><th>Tutar</th><th>İndirim</th><th>Ödeme</th><th>Durum</th><th>Tarih</th><th>Güncelle</th></tr></thead>
-        <tbody>
-          {orders.map(o => (
-            <tr key={o.order_id}>
-              <td>#{o.order_id}</td>
-              <td className="fw-semibold">{o.user?.full_name || o.user?.username || '-'}</td>
-              <td className="text-success fw-bold">{parseFloat(o.total_amount).toLocaleString('tr-TR')} ₺</td>
-              <td>{o.discount_amount > 0 ? `${parseFloat(o.discount_amount).toLocaleString('tr-TR')} ₺` : '-'}</td>
-              <td>{o.payment_method}</td>
-              <td><span className={`badge bg-${statusColors[o.status]}`}>{statusLabels[o.status]}</span></td>
-              <td>{new Date(o.created_at).toLocaleDateString('tr-TR')}</td>
-              <td>
-                <select className="form-select form-select-sm" value={o.status} onChange={e => updateStatus(o.order_id, e.target.value)}>
-                  {Object.entries(statusLabels).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div>
+      <div className="alert alert-info">
+        Banka ödemeleri yalnızca yönetici tarafından gerçek banka kaydıyla karşılaştırılarak manuel onaylanabilir.
+        İşlem referansı ve denetim notu saklanır. Kart/PayPal doğrulaması henüz desteklenmiyor.
+        İptal/iade ve ücretli etkinlik rezervasyonu P1 mutabakatı tamamlanana kadar kapalıdır.
+      </div>
+      <div className="table-responsive">
+        <table className="table table-hover table-bordered align-middle">
+          <thead className="table-dark"><tr><th>ID</th><th>Müşteri</th><th>Tutar</th><th>Ödeme</th><th>Durum</th><th>Tarih</th><th>İşlemler</th></tr></thead>
+          <tbody>
+            {orders.map(o => (
+              <tr key={o.order_id}>
+                <td>#{o.order_id}</td>
+                <td>{o.user?.full_name || o.user?.username || '-'}</td>
+                <td className="fw-semibold">{parseFloat(o.total_amount).toLocaleString('tr-TR')} ₺</td>
+                <td>{o.payment_method === 'bank_transfer' ? 'Havale/EFT' : o.payment_method + ' (entegrasyon yok)'}</td>
+                <td><span className={'badge bg-' + statusColors[o.status]}>{statusLabels[o.status]}</span></td>
+                <td>{new Date(o.created_at).toLocaleDateString('tr-TR')}</td>
+                <td>
+                  <div className="d-flex flex-wrap gap-1">
+                    {isAdmin && o.status === 'pending' && o.payment_method === 'bank_transfer' && (
+                      <button className="btn btn-sm btn-outline-success" disabled={busy} onClick={() => startVerification(o)}>Banka Kaydını Doğrula</button>
+                    )}
+                    {o.status === 'paid' && (
+                      <button className="btn btn-sm btn-outline-primary" disabled={busy} onClick={() => updateStatus(o.order_id, 'shipped')}>Kargoya Ver</button>
+                    )}
+                    {o.status === 'shipped' && (
+                      <button className="btn btn-sm btn-outline-primary" disabled={busy} onClick={() => updateStatus(o.order_id, 'delivered')}>Teslim Et</button>
+                    )}
+                    <button className="btn btn-sm btn-outline-secondary" onClick={() => viewAudit(o.order_id)}>Denetim Geçmişi</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {proofOrder !== null && (
+        <form onSubmit={verifyTransfer} className="card p-3 mb-4" aria-label="Banka havalesi manuel doğrulama">
+          <h5>#{proofOrder} — Banka kaydı mutabakatı (yalnızca admin)</h5>
+          <p className="text-muted small">Dekont fotoğrafı tek başına ödeme kanıtı değildir. İşlemi bankanızın ekstre veya resmî panel kayıtlarında doğrulayın.</p>
+          <div className="row g-2">
+            <div className="col-md-6">
+              <label className="form-label">Banka işlem referansı</label>
+              <input required className="form-control" minLength={8} maxLength={80} value={proof.payment_reference}
+                onChange={e => setProof(p => ({ ...p, payment_reference: e.target.value }))} />
+            </div>
+            <div className="col-md-3">
+              <label className="form-label">Kontrol edilen tutar (₺)</label>
+              <input required className="form-control" type="number" step="0.01" min="0.01"
+                value={proof.verified_amount} onChange={e => setProof(p => ({ ...p, verified_amount: e.target.value }))} />
+            </div>
+            <div className="col-md-3">
+              <label className="form-label">Banka işlem tarihi</label>
+              <input required type="date" className="form-control" value={proof.evidence_date}
+                onChange={e => setProof(p => ({ ...p, evidence_date: e.target.value }))} />
+            </div>
+            <div className="col-md-4">
+              <label className="form-label">Doğrulanan kaynak</label>
+              <select className="form-select" value={proof.evidence_source}
+                onChange={e => setProof(p => ({ ...p, evidence_source: e.target.value }))}>
+                <option value="bank_statement">Banka hesap ekstresi</option>
+                <option value="bank_portal">Banka işlem paneli</option>
+              </select>
+            </div>
+            <div className="col-md-8">
+              <label className="form-label">Denetim notu (15-500 karakter)</label>
+              <textarea required minLength={15} maxLength={500} className="form-control" rows={2}
+                value={proof.evidence_note} onChange={e => setProof(p => ({ ...p, evidence_note: e.target.value }))} />
+            </div>
+          </div>
+          <label className="form-check mt-3 mb-3">
+            <input className="form-check-input" type="checkbox" checked={checked}
+              onChange={e => setChecked(e.target.checked)} required />
+            <span className="form-check-label">Banka kaydında referansı, tarihi, tutarı ve alıcı hesabı bağımsız olarak karşılaştırdım.</span>
+          </label>
+          <div className="d-flex gap-2">
+            <button className="btn btn-success" type="submit" disabled={busy || !checked}>Manuel Kontrolü Kaydet</button>
+            <button className="btn btn-outline-secondary" type="button" onClick={() => setProofOrder(null)}>Vazgeç</button>
+          </div>
+        </form>
+      )}
+      {history.orderId !== null && (
+        <div className="card p-3">
+          <div className="d-flex justify-content-between"><h5>#{history.orderId} — Denetim Geçmişi</h5>
+            <button className="btn btn-sm btn-outline-secondary" onClick={() => setHistory({ orderId: null, entries: [] })}>Kapat</button>
+          </div>
+          {history.entries.length === 0 ? <p className="text-muted">Henüz denetim kaydı yok.</p> :
+            <div className="table-responsive"><table className="table table-sm">
+              <thead><tr><th>Zaman</th><th>İşlemi yapan</th><th>Geçiş</th><th>İşlem referansı</th><th>Kanıt kaynağı</th></tr></thead>
+              <tbody>{history.entries.map(a => <tr key={a.audit_id}>
+                <td>{new Date(a.created_at).toLocaleString('tr-TR')}</td>
+                <td>{a.actor?.username || a.actor_id}</td>
+                <td>{a.from_status} → {a.to_status}</td>
+                <td>{a.payment_reference || '—'}</td>
+                <td>{a.evidence_source || '—'}</td>
+              </tr>)}</tbody>
+            </table></div>}
+        </div>
+      )}
     </div>
   );
 }
