@@ -38,9 +38,9 @@ jobs:
       - name: P1.3 administrator module integration tests
         working-directory: backend
         run: npm run test:admin
-      - name: Scan production dependencies
+      - name: Require zero production dependency advisories
         working-directory: backend
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --audit-level=low
 
   frontend:
     runs-on: ubuntu-latest
