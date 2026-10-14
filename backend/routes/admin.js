@@ -190,10 +190,128 @@ router.delete('/users/:id', requireRole('admin'), async (req, res) => {
     const user = await User.findByPk(req.params.id);
     if (!user) return sendError(res, 'Kullanıcı bulunamadı', 404);
 
-    await user.destroy();
-    sendSuccess(res, null, 'Kullanıcı silindi');
+    await user.update({ is_active: false });
+    sendSuccess(res, null, 'Kullanıcı pasifleştirildi; işlem geçmişi korundu');
   } catch (err) {
     sendError(res, 'Kullanıcı silme hatası: ' + err.message, 500);
+  }
+});
+
+// ════════════════════════════════════════
+//  SANATÇI / KATEGORİ YÖNETİMİ (admin + manager)
+// ════════════════════════════════════════
+router.get('/artists', requireRole('admin', 'gallery_manager'), async (req, res) => {
+  try {
+    const artists = await Artist.findAll({
+      include: [{ model: Artwork, as: 'artworks', attributes: ['artwork_id', 'title'] }],
+      order: [['artist_id', 'DESC']]
+    });
+    return sendSuccess(res, artists);
+  } catch (err) {
+    return sendError(res, 'Sanatçılar alınamadı', 500);
+  }
+});
+
+router.post('/artists', requireRole('admin', 'gallery_manager'), async (req, res) => {
+  const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+  if (name.length < 2 || name.length > 100) return sendError(res, 'Sanatçı adı 2-100 karakter olmalı', 400);
+  try {
+    const artist = await Artist.create({
+      name, bio: req.body.bio || null, website: req.body.website || null,
+      contact: req.body.contact || null, is_active: true
+    });
+    return sendSuccess(res, artist, 'Sanatçı eklendi', 201);
+  } catch (err) {
+    return sendError(res, 'Sanatçı oluşturulamadı', 500);
+  }
+});
+
+router.put('/artists/:id', requireRole('admin', 'gallery_manager'), async (req, res) => {
+  try {
+    const artist = await Artist.findByPk(req.params.id);
+    if (!artist) return sendError(res, 'Sanatçı bulunamadı', 404);
+    const changes = {};
+    if (req.body.name !== undefined) {
+      if (typeof req.body.name !== 'string' || req.body.name.trim().length < 2 ||
+          req.body.name.trim().length > 100) return sendError(res, 'Sanatçı adı geçersiz', 400);
+      changes.name = req.body.name.trim();
+    }
+    for (const field of ['bio', 'website', 'contact']) {
+      if (req.body[field] !== undefined) changes[field] = req.body[field];
+    }
+    if (req.body.is_active !== undefined) {
+      if (typeof req.body.is_active !== 'boolean') return sendError(res, 'is_active boolean olmalı', 400);
+      changes.is_active = req.body.is_active;
+    }
+    await artist.update(changes);
+    return sendSuccess(res, artist, 'Sanatçı güncellendi');
+  } catch (err) {
+    return sendError(res, 'Sanatçı güncellenemedi', 500);
+  }
+});
+
+router.delete('/artists/:id', requireRole('admin', 'gallery_manager'), async (req, res) => {
+  try {
+    const [changed] = await Artist.update({ is_active: false }, {
+      where: { artist_id: req.params.id }
+    });
+    if (changed !== 1) return sendError(res, 'Sanatçı bulunamadı', 404);
+    return sendSuccess(res, null, 'Sanatçı pasifleştirildi; eser geçmişi korundu');
+  } catch (err) {
+    return sendError(res, 'Sanatçı pasifleştirilemedi', 500);
+  }
+});
+
+router.get('/categories', requireRole('admin', 'gallery_manager'), async (req, res) => {
+  try {
+    return sendSuccess(res, await Category.findAll({ order: [['category_id', 'ASC']] }));
+  } catch (err) {
+    return sendError(res, 'Kategoriler alınamadı', 500);
+  }
+});
+
+router.post('/categories', requireRole('admin', 'gallery_manager'), async (req, res) => {
+  const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+  if (!name || name.length > 100) return sendError(res, 'Kategori adı gerekli', 400);
+  try {
+    const existing = await Category.findOne({ where: { name } });
+    if (existing) return sendError(res, 'Kategori zaten mevcut', 409);
+    const category = await Category.create({ name, description: req.body.description || null });
+    return sendSuccess(res, category, 'Kategori oluşturuldu', 201);
+  } catch (err) {
+    return sendError(res, 'Kategori oluşturulamadı', 500);
+  }
+});
+
+router.put('/categories/:id', requireRole('admin', 'gallery_manager'), async (req, res) => {
+  try {
+    const category = await Category.findByPk(req.params.id);
+    if (!category) return sendError(res, 'Kategori bulunamadı', 404);
+    if (req.body.name !== undefined) {
+      if (typeof req.body.name !== 'string' || !req.body.name.trim()) {
+        return sendError(res, 'Kategori adı gerekli', 400);
+      }
+      category.name = req.body.name.trim();
+    }
+    if (req.body.description !== undefined) category.description = req.body.description;
+    await category.save();
+    return sendSuccess(res, category, 'Kategori güncellendi');
+  } catch (err) {
+    return sendError(res, 'Kategori güncellenemedi', 500);
+  }
+});
+
+router.delete('/categories/:id', requireRole('admin', 'gallery_manager'), async (req, res) => {
+  try {
+    if (await Artwork.count({ where: { category_id: req.params.id } }) > 0) {
+      return sendError(res, 'Bu kategoride eserler bulunduğundan silinemez', 409);
+    }
+    const category = await Category.findByPk(req.params.id);
+    if (!category) return sendError(res, 'Kategori bulunamadı', 404);
+    await category.destroy();
+    return sendSuccess(res, null, 'Kategori kaldırıldı');
+  } catch (err) {
+    return sendError(res, 'Kategori silinemedi', 500);
   }
 });
 
@@ -244,8 +362,8 @@ router.delete('/artworks/:id', requireRole('admin', 'gallery_manager'), async (r
   try {
     const artwork = await Artwork.findByPk(req.params.id);
     if (!artwork) return sendError(res, 'Eser bulunamadı', 404);
-    await artwork.destroy();
-    sendSuccess(res, null, 'Eser silindi');
+    await artwork.update({ is_available: false });
+    sendSuccess(res, null, 'Eser satıştan kaldırıldı; sipariş geçmişi korundu');
   } catch (err) {
     sendError(res, 'Eser silme hatası: ' + err.message, 500);
   }
@@ -523,8 +641,12 @@ router.delete('/coupons/:id', requireRole('admin'), async (req, res) => {
   try {
     const coupon = await Coupon.findByPk(req.params.id);
     if (!coupon) return sendError(res, 'Kupon bulunamadı', 404);
+    const usedOrders = await Order.count({ where: { coupon_id: coupon.coupon_id } });
+    if (usedOrders || Number(coupon.used_count) > 0) {
+      return sendError(res, 'Kullanılmış kupon silinemez; sipariş geçmişi korunmalıdır', 409);
+    }
     await coupon.destroy();
-    sendSuccess(res, null, 'Kupon silindi');
+    sendSuccess(res, null, 'Kullanılmamış kupon silindi');
   } catch (err) {
     sendError(res, 'Kupon silme hatası: ' + err.message, 500);
   }
