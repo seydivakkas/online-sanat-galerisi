@@ -252,3 +252,54 @@ test('expired pending order cannot be confirmed as paid', async () => {
   const order = await Order.findByPk(id);
   assert.equal(order.status, 'cancelled');
 });
+
+
+test('direct free booking can resize and cancel exactly once without leaking seats', async () => {
+  const booking = await Reservation.findOne({
+    where: { user_id: users.customer.user_id, event_id: free.event_id,
+      status: 'confirmed', order_id: null }
+  });
+  assert.ok(booking);
+  const update = await api('PUT', '/api/reservations/' + booking.reservation_id,
+    'customer', { participant_count: 2 });
+  assert.equal(update.status, 200, JSON.stringify(update.body));
+  assert.equal(await countEvent(free), 2);
+  const cancel = await api('DELETE', '/api/reservations/' + booking.reservation_id, 'customer');
+  assert.equal(cancel.status, 200);
+  assert.equal(await countEvent(free), 0);
+  const again = await api('DELETE', '/api/reservations/' + booking.reservation_id, 'customer');
+  assert.equal(again.status, 409);
+  assert.equal(await countEvent(free), 0);
+});
+
+test('manual bank refund for unsent artwork returns stock with unique reference', async () => {
+  const originalStock = await countStock(art);
+  const created = await checkout('customer', [artItem()]);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const id = created.body.data.order.order_id;
+  assert.equal(await countStock(art), originalStock - 1);
+  const paid = await api('POST', '/api/admin/orders/' + id + '/verify-bank-transfer',
+    'admin', proof('P1-ART-PAID-001'));
+  assert.equal(paid.status, 200, JSON.stringify(paid.body));
+  const refunded = await api('POST', '/api/admin/orders/' + id + '/verify-bank-refund',
+    'admin', proof('P1-ART-REFUND-001'));
+  assert.equal(refunded.status, 200, JSON.stringify(refunded.body));
+  assert.equal(await countStock(art), originalStock);
+  assert.equal((await Order.findByPk(id)).status, 'cancelled');
+});
+
+test('simultaneous competing claims for the last paid event seat never oversell', async () => {
+  const scarce = await Event.create({ title: 'P1 Last Seat Race',
+    event_date: date, event_time: time, capacity: 1,
+    current_registrations: 0, is_active: true, price: '60.00' });
+  const attempts = await Promise.all([
+    checkout('customer', [eventItem(scarce)]),
+    checkout('other', [eventItem(scarce)])
+  ]);
+  assert.equal(attempts.filter(r => r.status === 201).length, 1,
+    'exactly one claimant should get the final seat: ' + JSON.stringify(attempts));
+  assert.equal(await countEvent(scarce), 1);
+  assert.equal(await Reservation.count({ where: {
+    event_id: scarce.event_id, status: 'pending'
+  } }), 1);
+});
