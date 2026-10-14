@@ -117,6 +117,21 @@ async function advanceOrderStatus(orderId, actorId, targetStatus) {
     if (order.status !== expectedPrevious) {
       throw new OrderTransitionError('Geçersiz sipariş durum geçişi');
     }
+    // The previous version allowed customers to self-confirm as paid.
+    // Historical paid/shipped records are untrusted unless reconciled.
+    const bankEvidence = await OrderStatusAudit.findOne({
+      where: { order_id: orderId, action: 'manual_bank_attestation',
+        to_status: 'paid' }, transaction
+    });
+    if (!bankEvidence) {
+      throw new OrderTransitionError('Eski sipariş için doğrulanmış banka mutabakat kaydı yok');
+    }
+    const eventTickets = await OrderItem.count({
+      where: { order_id: orderId, item_type: 'event' }, transaction
+    });
+    if (eventTickets > 0) {
+      throw new OrderTransitionError('Etkinlik siparişlerinde P1 rezervasyon mutabakatı gerekli');
+    }
     const [changed] = await Order.update({ status: targetStatus }, {
       where: { order_id: orderId, status: expectedPrevious }, transaction
     });
