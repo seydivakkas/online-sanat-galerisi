@@ -29,6 +29,9 @@ jobs:
       - name: Security smoke checks (temporary SQLite)
         working-directory: backend
         run: npm run test:security
+      - name: Payment status and audit integration tests
+        working-directory: backend
+        run: npm run test:payments
       - name: Scan production dependencies
         working-directory: backend
         run: npm audit --omit=dev --audit-level=high
