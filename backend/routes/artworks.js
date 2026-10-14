@@ -1,30 +1,97 @@
 const express = require('express');
 const multer = require('multer');
+const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 const { Op } = require('sequelize');
 const { Artwork, Artist, Category, Review, Favorite } = require('../models');
-const { optionalAuth } = require('../middleware/auth');
+const { optionalAuth, requireAuth, requireRole } = require('../middleware/auth');
 const sequelize = require('../config/database');
 const { sendSuccess, sendError } = require('../utils/response');
 
 const router = express.Router();
 
-// Multer konfigürasyonu — eser görselleri
+// Images are untrusted inputs. Restrict extensions, declared MIME types,
+// upload size and file signatures before accepting a file into the catalogue.
+const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const IMAGE_TYPES = Object.freeze({
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp'
+});
+
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, '..', 'uploads')),
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `artwork-${Date.now()}${ext}`);
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, 'artwork-' + crypto.randomUUID() + ext);
   }
 });
+
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+    files: 1,
+    fields: 10,
+    parts: 11,
+    fieldSize: 16 * 1024
+  },
   fileFilter: (req, file, cb) => {
-    const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
-    cb(null, allowed.includes(path.extname(file.originalname).toLowerCase()));
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!IMAGE_TYPES[ext] || file.mimetype !== IMAGE_TYPES[ext]) {
+      return cb(new Error('Yalnızca JPEG, PNG, GIF veya WebP görselleri yüklenebilir'));
+    }
+    cb(null, true);
   }
 });
+
+function validImageSignature(header, ext, bytesRead) {
+  if (ext === '.jpg' || ext === '.jpeg') {
+    return bytesRead >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff;
+  }
+  if (ext === '.png') {
+    return bytesRead >= 8 && header.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'));
+  }
+  if (ext === '.gif') {
+    return bytesRead >= 6 && ['GIF87a', 'GIF89a'].includes(header.toString('ascii', 0, 6));
+  }
+  if (ext === '.webp') {
+    return bytesRead >= 12 && header.toString('ascii', 0, 4) === 'RIFF' &&
+      header.toString('ascii', 8, 12) === 'WEBP';
+  }
+  return false;
+}
+
+async function inspectUploadedImage(file) {
+  const handle = await fs.promises.open(file.path, 'r');
+  try {
+    const header = Buffer.alloc(12);
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    return validImageSignature(header, path.extname(file.filename), bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+async function removeUpload(file) {
+  if (file) await fs.promises.unlink(file.path).catch(() => {});
+}
+
+// Convert Multer failures to user-safe 400 responses. Authentication and role
+// checks run before this middleware, preventing unauthorized disk writes.
+function receiveImage(req, res, next) {
+  upload.single('image')(req, res, err => {
+    if (err) return sendError(res, err.code === 'LIMIT_FILE_SIZE'
+      ? 'Görsel en fazla 5 MB olabilir'
+      : 'Geçersiz görsel yükleme isteği', 400);
+    next();
+  });
+}
 
 // GET /api/artworks — Tüm eserleri listele (pagination, filtre)
 // ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
@@ -201,11 +268,16 @@ router.get('/:id/avg-rating', async (req, res) => {
   }
 });
 
-// POST /api/artworks — Eser oluştur (admin)
-router.post('/', upload.single('image'), async (req, res) => {
+// POST /api/artworks — only an active admin/manager may upload art.
+router.post('/', requireAuth, requireRole('admin', 'gallery_manager'), receiveImage, async (req, res) => {
   try {
+    if (req.file && !(await inspectUploadedImage(req.file))) {
+      await removeUpload(req.file);
+      return sendError(res, 'Dosya içeriği geçerli bir görsel formatı değil', 400);
+    }
+
     const { title, description, artist_id, category_id, price, stock_quantity } = req.body;
-    const image_url = req.file ? `uploads/${req.file.filename}` : null;
+    const image_url = req.file ? 'uploads/' + req.file.filename : null;
 
     const artwork = await Artwork.create({
       title, description, artist_id, category_id, price,
@@ -213,9 +285,10 @@ router.post('/', upload.single('image'), async (req, res) => {
       image_url
     });
 
-    sendSuccess(res, artwork, 'Eser oluşturuldu', 201);
+    return sendSuccess(res, artwork, 'Eser oluşturuldu', 201);
   } catch (err) {
-    sendError(res, 'Eser oluşturulurken hata: ' + err.message, 500);
+    await removeUpload(req.file);
+    return sendError(res, 'Eser oluşturulurken hata oluştu', 500);
   }
 });
 
