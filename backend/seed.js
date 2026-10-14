@@ -1,3 +1,8 @@
+// Demo accounts and destructive seed operations must never run in production.
+if (process.env.NODE_ENV === 'production') {
+  throw new Error('Demo seed is disabled in production');
+}
+
 const bcrypt = require('bcryptjs');
 const { sequelize, User, Artist, Category, Artwork, Event, Reservation, Order, OrderItem, Favorite, Review, ReviewVote, ReviewReply, Coupon, SupportTicket, SupportMessage, Comparison } = require('./models');
 
