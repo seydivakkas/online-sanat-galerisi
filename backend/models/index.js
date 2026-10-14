@@ -48,6 +48,10 @@ Order.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 Order.hasMany(OrderItem, { foreignKey: 'order_id', as: 'items' });
 OrderItem.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
 
+// Order → event bookings (paid holds and confirmed tickets)
+Order.hasMany(Reservation, { foreignKey: 'order_id', as: 'reservations' });
+Reservation.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
+
 // Order → immutable state history
 Order.hasMany(OrderStatusAudit, { foreignKey: 'order_id', as: 'statusAudit' });
 OrderStatusAudit.belongsTo(Order, { foreignKey: 'order_id', as: 'order' });
