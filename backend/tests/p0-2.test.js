@@ -167,3 +167,16 @@ test('unsafe event ticket checkout is blocked before granting attendance', async
   assert.equal(r.status, 409);
   assert.equal(await Order.count(), beforeCount);
 });
+
+test('historical paid orders without audit are blocked from fulfillment', async () => {
+  const legacy = await Order.create({
+    user_id: users.customer.user_id, total_amount: '45.50',
+    payment_method: 'credit_card', status: 'paid'
+  });
+  const r = await api('PATCH', '/api/admin/orders/' + legacy.order_id + '/status',
+    'admin', { status: 'shipped' });
+  assert.equal(r.status, 409);
+  await legacy.reload();
+  assert.equal(legacy.status, 'paid');
+});
+
