@@ -16,6 +16,14 @@ Full-stack web uygulaması: sanat eserlerini keşfedin, atölye çalışmaların
 
 ## Kurulum
 
+## P1 — Etkinlik, sipariş ve kontenjan bütünlüğü (Draft / HOLD)
+
+Etkinlik biletleri ilan edilen **sabit tarih ve saat** üzerinden, siparişle bağlantılı rezervasyon olarak oluşturulur. Ücretli rezervasyon ödeme beklerken `pending`; yalnızca admin tarafından bağımsız banka ekstresi kontrolüyle onaylanan havale sonrasında `confirmed` olur. Ücretsiz etkinlik rezervasyonları doğrudan onaylanır.
+
+Yeni siparişler sınırlı süre stok/kontenjan ayırır (varsayılan 24 saat, `PENDING_ORDER_TTL_MINUTES`); süre bitiminde veya müşteri siparişi iptal ettiğinde kapasite geri açılır. Gerçek banka çıkışı doğrulanmış ve henüz sevk edilmemiş siparişlerin manuel iadesi ayrıca denetim kaydıyla yapılır. **Otomatik banka ödeme/iade API'si yoktur.**
+
+**ÖNEMLİ:** Yeni `orders.expires_at`, `reservations.order_id` kolonlarının güvenli production migration'ları henüz uygulanmadı; P0.1/P0.2 bağımlılık güvenlik engelleri çözülmedi. Geliştirme dalını üretimde veya var olan SQLite veritabanında migration olmadan çalıştırmayın. Teknik sınırlar: [P1 Rezervasyon ve Sipariş Bütünlüğü](docs/P1_rezervasyon_siparis_butunlugu.md).
+
 ### Backend
 
 **P0.1 güvenlik yapılandırması:** Backend başlatılmadan önce `JWT_SECRET` ortam değişkenine en az 32 baytlık rastgele bir değer verilmelidir. Sabit varsayılan anahtar kaldırılmıştır. Windows PowerShell örneği:
