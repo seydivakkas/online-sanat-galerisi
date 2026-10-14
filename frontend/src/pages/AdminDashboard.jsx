@@ -211,12 +211,42 @@ function ArtworksTab() {
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const [showCreate, setShowCreate] = useState(false);
+  const [artists, setArtists] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [createForm, setCreateForm] = useState({
+    title: '', description: '', artist_id: '', category_id: '',
+    price: '0', stock_quantity: '1', image: null
+  });
 
   const load = () => {
     setLoading(true);
     adminAPI.getArtworks().then(r => setArtworks(r.data || [])).catch(() => {}).finally(() => setLoading(false));
   };
   useEffect(load, []);
+  useEffect(() => {
+    Promise.all([adminAPI.getArtists(), adminAPI.getCategories()])
+      .then(([a, c]) => { setArtists(a.data || []); setCategories(c.data || []); })
+      .catch(() => toast.error('Sanatçı/kategori seçenekleri alınamadı'));
+  }, []);
+
+  const createArtwork = async (e) => {
+    e.preventDefault();
+    const data = new FormData();
+    for (const [key, value] of Object.entries(createForm)) {
+      if (value !== null && value !== '') data.append(key, value);
+    }
+    try {
+      await adminAPI.createArtwork(data);
+      toast.success('Yeni eser kataloğa eklendi');
+      setShowCreate(false);
+      setCreateForm({ title: '', description: '', artist_id: '', category_id: '',
+        price: '0', stock_quantity: '1', image: null });
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Eser eklenemedi');
+    }
+  };
 
   const startEdit = (a) => { setEditId(a.artwork_id); setEditForm({ title: a.title, price: a.price, stock_quantity: a.stock_quantity, is_available: a.is_available }); };
   const cancelEdit = () => { setEditId(null); setEditForm({}); };
@@ -228,14 +258,52 @@ function ArtworksTab() {
     } catch (err) { toast.error(err.response?.data?.error || 'Hata'); }
   };
   const deleteArtwork = async (id) => {
-    if (!window.confirm('Bu eseri silmek istediğinize emin misiniz?')) return;
-    try { await adminAPI.deleteArtwork(id); toast.success('Eser silindi'); load(); } catch (err) { toast.error(err.response?.data?.error || 'Hata'); }
+    if (!window.confirm('Eser satıştan kaldırılsın mı? Eski sipariş kayıtları korunacak.')) return;
+    try { await adminAPI.deleteArtwork(id); toast.success('Eser satıştan kaldırıldı'); load(); } catch (err) { toast.error(err.response?.data?.error || 'Hata'); }
   };
 
   if (loading) return <div className="text-center py-5"><div className="spinner-border"></div></div>;
 
   return (
-    <div className="table-responsive">
+    <div>
+      <button className="btn btn-dark mb-3" onClick={() => setShowCreate(!showCreate)}>
+        {showCreate ? 'Vazgeç' : '+ Yeni Eser Ekle'}
+      </button>
+      {showCreate && <form onSubmit={createArtwork} className="card p-3 mb-3">
+        <h5>Eser Oluştur</h5>
+        <div className="row g-2">
+          <div className="col-md-6"><label className="form-label">Başlık</label>
+            <input className="form-control" required maxLength={150} value={createForm.title}
+              onChange={e => setCreateForm({ ...createForm, title: e.target.value })}/></div>
+          <div className="col-md-3"><label className="form-label">Sanatçı</label>
+            <select className="form-select" required value={createForm.artist_id}
+              onChange={e => setCreateForm({ ...createForm, artist_id: e.target.value })}>
+              <option value="">Seçiniz</option>
+              {artists.filter(a => a.is_active).map(a => <option value={a.artist_id} key={a.artist_id}>{a.name}</option>)}
+            </select></div>
+          <div className="col-md-3"><label className="form-label">Kategori</label>
+            <select className="form-select" required value={createForm.category_id}
+              onChange={e => setCreateForm({ ...createForm, category_id: e.target.value })}>
+              <option value="">Seçiniz</option>
+              {categories.map(cat => <option key={cat.category_id} value={cat.category_id}>{cat.name}</option>)}
+            </select></div>
+          <div className="col-md-3"><label className="form-label">Fiyat ₺</label>
+            <input className="form-control" required type="number" min="0" step="0.01"
+              value={createForm.price} onChange={e => setCreateForm({ ...createForm, price: e.target.value })}/></div>
+          <div className="col-md-3"><label className="form-label">Stok</label>
+            <input className="form-control" required type="number" min="0" step="1"
+              value={createForm.stock_quantity}
+              onChange={e => setCreateForm({ ...createForm, stock_quantity: e.target.value })}/></div>
+          <div className="col-md-6"><label className="form-label">Görsel (en fazla 5 MB)</label>
+            <input className="form-control" type="file" accept="image/png,image/jpeg,image/webp,image/gif"
+              onChange={e => setCreateForm({ ...createForm, image: e.target.files?.[0] || null })}/></div>
+          <div className="col-12"><label className="form-label">Açıklama</label>
+            <textarea className="form-control" rows={2} value={createForm.description}
+              onChange={e => setCreateForm({ ...createForm, description: e.target.value })}/></div>
+          <div className="col-12"><button className="btn btn-success" type="submit">Eseri Kaydet</button></div>
+        </div>
+      </form>}
+      <div className="table-responsive">
       <table className="table table-hover table-bordered align-middle">
         <thead className="table-dark">
           <tr><th>ID</th><th>Eser</th><th>Sanatçı</th><th>Kategori</th><th>Fiyat</th><th>Stok</th><th>Aktif</th><th>İşlemler</th></tr>
@@ -283,6 +351,7 @@ function ArtworksTab() {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
