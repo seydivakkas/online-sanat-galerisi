@@ -214,6 +214,7 @@ router.get('/:id/image', async (req, res) => {
       return sendError(res, 'Görsel bulunamadı', 404);
     }
     const imagePath = path.join(__dirname, '..', artwork.image_url);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.sendFile(imagePath);
   } catch (err) {
     sendError(res, 'Görsel alınırken hata', 500);
