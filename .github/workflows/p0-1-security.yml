@@ -41,9 +41,9 @@ jobs:
       - name: P2 database migration and backup integration tests
         working-directory: backend
         run: npm run test:migrations
-      - name: Scan production dependencies
+      - name: Require zero production dependency advisories
         working-directory: backend
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --audit-level=low
 
   frontend:
     runs-on: ubuntu-latest
