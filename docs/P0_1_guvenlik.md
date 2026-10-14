@@ -1,6 +1,6 @@
 # P0.1 — Kimlik doğrulama, yetkilendirme ve görsel yükleme sertleştirmesi
 
-Durum: **DRAFT / HOLD**. İşlev değişiklikleri branch üzerinde; üretim güvenliği ve kabulü henüz tamamlanmadı.
+Durum: **DRAFT / HOLD**. Multer 2.4.0'a yükseltildi, `npm ci` PASS, kritik P0.1 güvenlik smoke testleri 10/10 PASS; ancak genel `npm audit` 18 bulgu nedeniyle FAIL.
 
 ## Uygulanan değişiklikler
 
@@ -28,7 +28,7 @@ npm run dev
 
 Örnek veritabanı hazırlama komutu `npm run seed`, `sequelize.sync({force:true})` kullanır ve **mevcut kayıtları siler**. P0.1 ile `NODE_ENV=production` durumunda çalıştırılması engellendi. Eski demo admin/manager hesapları daha önce üretime taşındıysa bunların parolalarını değiştirin veya hesapları devre dışı bırakın.
 
-## Kabul senaryoları (henüz çalıştırılmadı)
+## P0.1 güvenlik senaryoları — GitHub Actions üzerinde çalıştırıldı (10/10 PASS)
 
 - Ortam secret yok veya 32 bayttan kısa: API başlatılması reddedilmeli.
 - Yanlış/bitmiş token ve silinen/pasifleştirilen kullanıcı: korumalı uç noktalarda 401.
@@ -40,8 +40,9 @@ npm run dev
 
 ## Birleştirmeyi engelleyen işler
 
-- **Bağımlılık:** `backend/package.json` + `package-lock.json` şu an `multer@^1.4.5-lts.1` kullanıyor. Multer'ın 2026 güvenlik duyuruları nedeniyle **en az 2.4.0'a yükseltilmesi**, lockfile'ın aynı sürüm çözümlemesiyle üretilmesi, `npm ci` ve upload yolunun yeni sürümde doğrulanması zorunlu. Bu adım yapılmadan P0.1 üretim güvenliği kabul edilmez.
-- Test altyapısı depoda kanıtlı değil: API entegrasyon, dosya temizliği, hesap pasifleştirme ve rol değişikliği testleri son kabul aşamasında çalıştırılmalıdır.
+- **Multer düzeltmesi tamamlandı:** `backend/package.json` + `package-lock.json` Multer `2.4.0` ile uyumlu; GitHub Actions üzerinde `npm ci` ve 10/10 kimlik/görsel testleri başarılı. CVE-2026-88932 için sabitlenen sürüm güvenlik düzeltmesini içeriyor.
+- **Bağımlılık güvenlik taraması FAIL:** CI `npm audit --omit=dev --audit-level=high` sonucunda 18 bulgu (2 kritik / 9 yüksek / 4 orta / 3 düşük) döndü. Özellikle `proxy-addr`, `tar`, `sqlite3`→`node-gyp` zinciri, `sequelize`→`uuid` zinciri ve eski Express transitifleri için ayrı uyumluluk/upgrade çalışması gerekiyor. `npm audit fix --force` körlemesine uygulanmamalı; sqlite3 6.0.1 gibi major güncellemeler ayrı test gerektirir. Bu sebeple PR hâlen HOLD.
+- GitHub Actions: `P0.1 Security Gate`, run `38526692983`; `npm ci` PASS, `node --test tests/p0-1.test.js` 10/10 PASS, tam bağımlılık audit FAIL. Test dosyası `backend/tests/p0-1.test.js`, runner Node.js 22 ve bellek içi SQLite kullanır. Daha geniş senaryolar (yüklemenin abort edilmesi, dosya dekoder doğrulaması, tüm müşteri akışları ve Windows kabulü) henüz yapılmadı.
 - Dosya imzası yalnızca temel biçim doğrulamasıdır; tam resim decoder ile doğrulama / yeniden kodlama, görsel içerik denetimi, istek sınırlandırma ve antivirüs taraması mevcut kapsamda uygulanmadı.
 - Üretim ortamı için CORS, HTTPS, güvenli secret yönetimi ve dağıtım yapılandırmaları ayrıca incelenmelidir.
 
