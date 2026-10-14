@@ -278,11 +278,28 @@ router.post('/', requireAuth, requireRole('admin', 'gallery_manager'), receiveIm
     }
 
     const { title, description, artist_id, category_id, price, stock_quantity } = req.body;
+    const qty = Number(stock_quantity === undefined ? 1 : stock_quantity);
+    const amount = Number(price);
+    if (typeof title !== 'string' || !title.trim() || title.trim().length > 150 ||
+      !Number.isFinite(amount) || amount < 0 || !/^\\d+(?:\\.\\d{1,2})?$/.test(String(price)) ||
+      !Number.isSafeInteger(qty) || qty < 0 ||
+      !Number.isSafeInteger(Number(artist_id)) || Number(artist_id) < 1 ||
+      !Number.isSafeInteger(Number(category_id)) || Number(category_id) < 1) {
+      await removeUpload(req.file);
+      return sendError(res, 'Başlık, sanatçı, kategori, fiyat veya stok alanı geçersiz', 400);
+    }
+    const [artist, category] = await Promise.all([
+      Artist.findByPk(artist_id), Category.findByPk(category_id)
+    ]);
+    if (!artist || !artist.is_active || !category) {
+      await removeUpload(req.file);
+      return sendError(res, 'Geçerli ve aktif sanatçı ile kategori seçilmeli', 400);
+    }
     const image_url = req.file ? 'uploads/' + req.file.filename : null;
 
     const artwork = await Artwork.create({
-      title, description, artist_id, category_id, price,
-      stock_quantity: stock_quantity || 1,
+      title: title.trim(), description, artist_id, category_id, price,
+      stock_quantity: qty,
       image_url
     });
 
