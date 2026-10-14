@@ -741,6 +741,7 @@ function CouponsTab() {
   const [coupons, setCoupons] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingCoupon, setEditingCoupon] = useState(null);
   const [form, setForm] = useState({ code: '', discount_percent: '', discount_amount: '', valid_from: '', valid_until: '', max_uses: 100 });
 
   const load = () => {
@@ -755,12 +756,23 @@ function CouponsTab() {
       const data = { ...form };
       if (!data.discount_percent) delete data.discount_percent;
       if (!data.discount_amount) delete data.discount_amount;
-      await adminAPI.createCoupon(data);
-      toast.success('Kupon oluşturuldu');
+      if (editingCoupon) await adminAPI.updateCoupon(editingCoupon, data);
+      else await adminAPI.createCoupon(data);
+      toast.success(editingCoupon ? 'Kupon güncellendi' : 'Kupon oluşturuldu');
+      setEditingCoupon(null);
       setShowForm(false);
       setForm({ code: '', discount_percent: '', discount_amount: '', valid_from: '', valid_until: '', max_uses: 100 });
       load();
     } catch (err) { toast.error(err.response?.data?.error || 'Hata'); }
+  };
+
+  const editCoupon = c => {
+    setEditingCoupon(c.coupon_id);
+    setForm({
+      code: c.code, discount_percent: c.discount_percent || '', discount_amount: c.discount_amount || '',
+      valid_from: c.valid_from || '', valid_until: c.valid_until || '', max_uses: c.max_uses ?? 100
+    });
+    setShowForm(true);
   };
 
   const deleteCoupon = async (id) => {
@@ -772,12 +784,15 @@ function CouponsTab() {
 
   return (
     <>
-      <button className="btn btn-dark mb-3" onClick={() => setShowForm(!showForm)}>
-        {showForm ? '❌ İptal' : '➕ Yeni Kupon'}
-      </button>
+      <button className="btn btn-dark mb-3" onClick={() => {
+        setEditingCoupon(null);
+        setForm({ code: '', discount_percent: '', discount_amount: '', valid_from: '', valid_until: '', max_uses: 100 });
+        setShowForm(!showForm);
+      }}>{showForm ? 'Vazgeç' : '+ Yeni Kupon'}</button>
 
       {showForm && (
         <form onSubmit={createCoupon} className="card border-0 shadow-sm p-3 mb-4">
+          <h5>{editingCoupon ? 'Kuponu Düzenle' : 'Yeni Kupon'}</h5>
           <div className="row g-2">
             <div className="col-md-3"><input required className="form-control" placeholder="Kupon Kodu" value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} /></div>
             <div className="col-md-3"><input type="number" className="form-control" placeholder="İndirim %" value={form.discount_percent} onChange={e => setForm({...form, discount_percent: e.target.value, discount_amount: ''})} /></div>
@@ -785,7 +800,7 @@ function CouponsTab() {
             <div className="col-md-3"><input type="number" className="form-control" placeholder="Max Kullanım" value={form.max_uses} onChange={e => setForm({...form, max_uses: parseInt(e.target.value)})} /></div>
             <div className="col-md-4"><label className="form-label small">Başlangıç</label><input type="date" className="form-control" value={form.valid_from} onChange={e => setForm({...form, valid_from: e.target.value})} /></div>
             <div className="col-md-4"><label className="form-label small">Bitiş</label><input type="date" className="form-control" value={form.valid_until} onChange={e => setForm({...form, valid_until: e.target.value})} /></div>
-            <div className="col-md-4 d-flex align-items-end"><button type="submit" className="btn btn-success w-100">✅ Oluştur</button></div>
+            <div className="col-md-4 d-flex align-items-end"><button type="submit" className="btn btn-success w-100">{editingCoupon ? 'Kaydet' : 'Oluştur'}</button></div>
           </div>
         </form>
       )}
@@ -803,7 +818,10 @@ function CouponsTab() {
                 <td>{c.valid_until || '-'}</td>
                 <td>{c.used_count}/{c.max_uses}</td>
                 <td>{c.is_user_specific ? `👤 #${c.target_user_id}` : 'Genel'}</td>
-                <td><button className="btn btn-sm btn-outline-danger" onClick={() => deleteCoupon(c.coupon_id)}>🗑️</button></td>
+                <td><div className="d-flex gap-1"><button className="btn btn-sm btn-outline-primary"
+                    onClick={() => editCoupon(c)}>Düzenle</button>
+                  <button className="btn btn-sm btn-outline-danger" onClick={() => deleteCoupon(c.coupon_id)}>Sil</button>
+                </div></td>
               </tr>
             ))}
           </tbody>
