@@ -161,12 +161,20 @@ Tarih/katılımcı güncelle.
 
 #### POST /api/orders
 ```json
-{ "items": [{"artwork_id": 1, "quantity": 1}], "payment_method": "credit_card", "coupon_code": "HOSGELDIN10" }
+{ "items": [{"item_type": "artwork", "item_id": 1, "quantity": 1}], "payment_method": "bank_transfer", "coupon_code": "HOSGELDIN10" }
 // İş Kuralı: Stok kontrolü + kupon doğrulama + indirim hesaplama
 ```
 
-#### POST /api/orders/:id/confirm
-Ödemeyi onayla.
+#### POST /api/orders/:id/confirm (KALDIRILDI — 410)
+Güvenlik nedeniyle müşteri tarafından ödeme onaylama kaldırıldı. Gerçek bir banka kaydı olmadan sipariş durumu `paid` yapılamaz.
+
+#### POST /api/admin/orders/:id/verify-bank-transfer (ADMIN)
+Manuel banka ekstresi/panel mutabakatı; banka referansı, doğrulanan tutar, işlem tarihi, kaynak türü ve denetim notu gerekir. Bağımsız banka API doğrulaması değildir.
+
+#### GET /api/admin/orders/:id/audit (ADMIN/MANAGER)
+Yetkili durum geçişlerinin denetim geçmişi.
+
+Kart/PayPal yeni siparişleri ve etkinlik bileti içeren sepetler ödeme/rezervasyon altyapısı tamamlanana kadar geçici olarak engellenir. Ayrıntılar: [P0.2 ödeme güvenliği](docs/P0_2_odeme_guvenligi.md).
 
 #### GET /api/orders
 Sipariş geçmişi.
