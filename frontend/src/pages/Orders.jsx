@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { orderAPI } from '../services/api';
+import { toast } from 'react-hot-toast';
 
 export default function Orders() {
   const [orders, setOrders] = useState([]);
@@ -7,6 +8,19 @@ export default function Orders() {
   useEffect(() => {
     orderAPI.getAll().then(r => setOrders(r.data)).catch(() => {});
   }, []);
+
+  const cancelOrder = async (orderId) => {
+    if (!window.confirm('Ödeme bekleyen siparişinizi iptal etmek istiyor musunuz? Ayrılan stok ve kontenjan geri açılır.')) return;
+    try {
+      await orderAPI.cancel(orderId);
+      setOrders(prev => prev.map(o =>
+        o.order_id === orderId ? { ...o, status: 'cancelled' } : o
+      ));
+      toast.success('Sipariş iptal edildi; stok ve kontenjan yeniden açıldı.');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Sipariş iptal edilemedi');
+    }
+  };
 
   const statusBadge = (status) => {
     const map = { pending: 'bg-warning', paid: 'bg-info', shipped: 'bg-primary', delivered: 'bg-success', cancelled: 'bg-danger' };
@@ -32,9 +46,22 @@ export default function Orders() {
                 </div>
                 <div className="d-flex align-items-center gap-2">
                   {statusBadge(order.status)}
+                  {order.status === 'pending' && (
+                    <button className="btn btn-sm btn-outline-danger" onClick={() => cancelOrder(order.order_id)}>Siparişi İptal Et</button>
+                  )}
                   <span className="fw-bold text-success">{parseFloat(order.total_amount).toLocaleString('tr-TR')} ₺</span>
                 </div>
               </div>
+              {order.status === 'pending' && order.expires_at && (
+                <p className="small text-warning mb-1">
+                  Ödeme doğrulaması için ayrılan stok süresi: {new Date(order.expires_at).toLocaleString('tr-TR')}
+                </p>
+              )}
+              {order.status === 'paid' && (
+                <p className="small text-muted mb-1">
+                  Banka kaydı doğrulandı. Sevk edilmemiş siparişlerde iade için galeri yönetimiyle iletişime geçebilirsiniz.
+                </p>
+              )}
               {order.discount_amount > 0 && (
                 <p className="small text-danger mb-1">İndirim: -{parseFloat(order.discount_amount).toLocaleString('tr-TR')} ₺</p>
               )}
