@@ -17,6 +17,18 @@ Full-stack web uygulaması: sanat eserlerini keşfedin, atölye çalışmaların
 ## Kurulum
 
 ### Backend
+
+**P0.1 güvenlik yapılandırması:** Backend başlatılmadan önce `JWT_SECRET` ortam değişkenine en az 32 baytlık rastgele bir değer verilmelidir. Sabit varsayılan anahtar kaldırılmıştır. Windows PowerShell örneği:
+
+```powershell
+$bytes = New-Object byte[] 48
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+$env:JWT_SECRET = [Convert]::ToBase64String($bytes)
+```
+
+Üretim ortamında sırrı güvenli biçimde saklayın ve yeniden başlatmalarda koruyun. P0.1 PR'ı, Multer bağımlılığı güncellemesi ve güvenlik kabulü tamamlanana kadar **DRAFT / HOLD** durumundadır. Ayrıntılar: [P0.1 güvenlik notları](docs/P0_1_guvenlik.md).
+
 ```bash
 cd backend
 npm install
