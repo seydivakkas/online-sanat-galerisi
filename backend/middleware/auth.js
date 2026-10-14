@@ -1,33 +1,67 @@
 const jwt = require('jsonwebtoken');
 const { User, Order, OrderItem, Reservation } = require('../models');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'art-gallery-secret-key-2024';
+// Secrets must be supplied by the environment. Never allow a known fallback key.
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || Buffer.byteLength(JWT_SECRET, 'utf8') < 32) {
+  throw new Error('JWT_SECRET must be set to a random value of at least 32 bytes before starting the API');
+}
 
-// JWT doğrulama
-function requireAuth(req, res, next) {
+// A signed token identifies the user; the database is the source of truth
+// for the account's active status and current role on every protected request.
+async function resolveIdentity(header) {
+  const token = header.slice('Bearer '.length).trim();
+  const claims = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+  if (!claims || !Number.isSafeInteger(claims.id) || claims.id < 1) return null;
+
+  const account = await User.findByPk(claims.id, {
+    attributes: ['user_id', 'role', 'is_active']
+  });
+  if (!account || !account.is_active) return null;
+
+  return { id: account.user_id, role: account.role };
+}
+
+function isTokenError(err) {
+  return err instanceof jwt.JsonWebTokenError;
+}
+
+// Required authentication: reject invalid, deleted and deactivated users.
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Kimlik doğrulama gerekli' });
   }
+
   try {
-    const token = header.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch {
-    return res.status(401).json({ error: 'Geçersiz veya süresi dolmuş token' });
+    const identity = await resolveIdentity(header);
+    if (!identity) {
+      return res.status(401).json({ error: 'Geçersiz veya pasifleştirilmiş kullanıcı hesabı' });
+    }
+    req.user = identity;
+    return next();
+  } catch (err) {
+    if (isTokenError(err)) {
+      return res.status(401).json({ error: 'Geçersiz veya süresi dolmuş token' });
+    }
+    return next(err);
   }
 }
 
-// Opsiyonel auth — token varsa decode et, yoksa devam
-function optionalAuth(req, res, next) {
+// Public routes remain public even when a stale token is present; a stale
+// token never grants a user identity. Database failures still surface as errors.
+async function optionalAuth(req, res, next) {
   const header = req.headers.authorization;
-  if (header && header.startsWith('Bearer ')) {
-    try {
-      req.user = jwt.verify(header.split(' ')[1], JWT_SECRET);
-    } catch { /* token geçersiz, devam */ }
+  if (!header || !header.startsWith('Bearer ')) return next();
+
+  try {
+    const identity = await resolveIdentity(header);
+    if (identity) req.user = identity;
+    return next();
+  } catch (err) {
+    if (isTokenError(err)) return next();
+    return next(err);
   }
-  next();
 }
 
 // Rol kontrolü
