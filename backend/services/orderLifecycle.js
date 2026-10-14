@@ -1,6 +1,7 @@
 const { UniqueConstraintError } = require('sequelize');
 const sequelize = require('../config/database');
-const { Order, OrderItem, OrderStatusAudit } = require('../models');
+const { Order, OrderItem, OrderStatusAudit, Reservation, Event } = require('../models');
+const { closeOrder } = require('./orderHolds');
 
 class OrderTransitionError extends Error {
   constructor(message, statusCode = 409) {
@@ -63,13 +64,21 @@ async function verifyBankTransfer(orderId, actorId, data) {
         throw new OrderTransitionError('Entegrasyonu olmayan ödeme yöntemi onaylanamaz');
       }
 
-      // Legacy event ticket orders created confirmed reservations before
-      // settlement. Do not declare them paid until P1 reconciles bookings.
-      const eventItemCount = await OrderItem.count({
+      if (order.expires_at && new Date(order.expires_at).getTime() <= Date.now()) {
+        throw new OrderTransitionError('Siparişin stok/kontenjan ayırma süresi doldu');
+      }
+      const eventItems = await OrderItem.findAll({
         where: { order_id: orderId, item_type: 'event' }, transaction
       });
-      if (eventItemCount > 0) {
-        throw new OrderTransitionError('Etkinlik içeren siparişler P1 rezervasyon mutabakatını bekliyor');
+      const bookings = await Reservation.findAll({
+        where: { order_id: orderId }, transaction
+      });
+      if (eventItems.length !== bookings.length ||
+        eventItems.some(item => !bookings.some(r =>
+          Number(r.event_id) === Number(item.item_id) &&
+          Number(r.participant_count) === Number(item.quantity) &&
+          r.status === 'pending'))) {
+        throw new OrderTransitionError('Siparişe bağlı rezervasyonlar doğrulanamadı');
       }
       const expectedCents = toCents(order.total_amount);
       if (expectedCents === null || expectedCents !== proof.amountCents) {
@@ -84,6 +93,14 @@ async function verifyBankTransfer(orderId, actorId, data) {
         throw new OrderTransitionError('Sipariş durumu değişmiş; onay yeniden değerlendirilmeli');
       }
 
+      if (bookings.length) {
+        const [confirmed] = await Reservation.update({ status: 'confirmed' }, {
+          where: { order_id: order.order_id, status: 'pending' }, transaction
+        });
+        if (confirmed !== bookings.length) {
+          throw new OrderTransitionError('Etkinlik rezervasyonlarının tamamı onaylanamadı');
+        }
+      }
       await OrderStatusAudit.create({
         order_id: order.order_id,
         actor_id: actorId,
@@ -145,4 +162,53 @@ async function advanceOrderStatus(orderId, actorId, targetStatus) {
   });
 }
 
-module.exports = { OrderTransitionError, verifyBankTransfer, advanceOrderStatus, toCents };
+
+async function refundBankTransfer(orderId, actorId, data) {
+  const proof = validateBankEvidence(data || {});
+  const order = await Order.findByPk(orderId);
+  if (!order) throw new OrderTransitionError('Sipariş bulunamadı', 404);
+  if (order.status !== 'paid' || order.payment_method !== 'bank_transfer') {
+    throw new OrderTransitionError('Yalnızca havaleyle ödenmiş, henüz sevk edilmemiş sipariş iade edilebilir');
+  }
+  const proofOfReceipt = await OrderStatusAudit.findOne({
+    where: { order_id: orderId, action: 'manual_bank_attestation' }
+  });
+  if (!proofOfReceipt) throw new OrderTransitionError('Ödemenin doğrulanmış banka kaydı yok');
+  const expected = toCents(order.total_amount);
+  if (expected === null || proof.amountCents !== expected) {
+    throw new OrderTransitionError('Çıkış işlemi tutarı sipariş toplamına eşit olmalı');
+  }
+  if (proof.payment_reference === proofOfReceipt.payment_reference) {
+    throw new OrderTransitionError('İade referansı tahsilat referansından farklı olmalı');
+  }
+  // Paid event tickets are refundable here only before the advertised session.
+  const eventItems = await OrderItem.findAll({ where: {
+    order_id: orderId, item_type: 'event'
+  } });
+  for (const item of eventItems) {
+    const event = await Event.findByPk(item.item_id);
+    if (!event || Date.parse(event.event_date + 'T' + event.event_time + ':00+03:00') <= Date.now()) {
+      throw new OrderTransitionError('Geçmiş veya silinmiş etkinlik otomatik iade için uygun değil');
+    }
+  }
+  try {
+    return await closeOrder(orderId, {
+      actorId,
+      action: 'manual_bank_refund',
+      refundEvidence: {
+        payment_reference: proof.payment_reference,
+        verified_amount: (proof.amountCents / 100).toFixed(2),
+        evidence_source: proof.evidence_source,
+        evidence_date: proof.evidence_date,
+        evidence_note: proof.evidence_note
+      }
+    });
+  } catch (err) {
+    if (err instanceof UniqueConstraintError) {
+      throw new OrderTransitionError('Banka iade referansı başka bir işlemde kullanılmış');
+    }
+    throw err;
+  }
+}
+
+module.exports = { OrderTransitionError, verifyBankTransfer, refundBankTransfer, advanceOrderStatus, toCents };
