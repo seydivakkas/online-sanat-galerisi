@@ -35,6 +35,9 @@ jobs:
       - name: P1 booking and inventory integrity tests
         working-directory: backend
         run: npm run test:integrity
+      - name: P1.3 administrator module integration tests
+        working-directory: backend
+        run: npm run test:admin
       - name: Scan production dependencies
         working-directory: backend
         run: npm audit --omit=dev --audit-level=high
