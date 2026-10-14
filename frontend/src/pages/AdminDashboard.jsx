@@ -363,6 +363,7 @@ function EventsTab() {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null);
   const [form, setForm] = useState({ title: '', description: '', event_date: '', event_time: '', duration_minutes: 120, capacity: 20, price: 0, location: '' });
 
   const load = () => {
@@ -373,8 +374,19 @@ function EventsTab() {
 
   const createEvent = async (e) => {
     e.preventDefault();
-    try { await adminAPI.createEvent(form); toast.success('Etkinlik oluşturuldu'); setShowForm(false); setForm({ title: '', description: '', event_date: '', event_time: '', duration_minutes: 120, capacity: 20, price: 0, location: '' }); load(); }
+    try { if (editingEvent) await adminAPI.updateEvent(editingEvent, form);
+      else await adminAPI.createEvent(form);
+      toast.success(editingEvent ? 'Etkinlik güncellendi' : 'Etkinlik oluşturuldu');
+      setEditingEvent(null); setShowForm(false); setForm({ title: '', description: '', event_date: '', event_time: '', duration_minutes: 120, capacity: 20, price: 0, location: '' }); load(); }
     catch (err) { toast.error(err.response?.data?.error || 'Hata'); }
+  };
+
+  const startEditEvent = (ev) => {
+    setEditingEvent(ev.event_id);
+    setForm({ title: ev.title, description: ev.description || '', event_date: ev.event_date,
+      event_time: ev.event_time, duration_minutes: ev.duration_minutes || 120,
+      capacity: ev.capacity, price: ev.price || 0, location: ev.location || '' });
+    setShowForm(true);
   };
 
   const toggleActive = async (ev) => {
@@ -383,20 +395,23 @@ function EventsTab() {
   };
 
   const deleteEvent = async (id) => {
-    if (!window.confirm('Bu etkinliği silmek istediğinize emin misiniz?')) return;
-    try { await adminAPI.deleteEvent(id); toast.success('Etkinlik silindi'); load(); } catch (err) { toast.error('Hata'); }
+    if (!window.confirm('Bu etkinlik pasifleştirilsin mi? Mevcut kayıtlar korunacak.')) return;
+    try { await adminAPI.deleteEvent(id); toast.success('Etkinlik kapatıldı'); load(); } catch (err) { toast.error('Hata'); }
   };
 
   if (loading) return <div className="text-center py-5"><div className="spinner-border"></div></div>;
 
   return (
     <>
-      <button className="btn btn-dark mb-3" onClick={() => setShowForm(!showForm)}>
-        {showForm ? '❌ İptal' : '➕ Yeni Etkinlik'}
-      </button>
+      <button className="btn btn-dark mb-3" onClick={() => {
+        setEditingEvent(null); setForm({ title: '', description: '', event_date: '',
+          event_time: '', duration_minutes: 120, capacity: 20, price: 0, location: '' });
+        setShowForm(!showForm);
+      }}>{showForm ? 'Vazgeç' : '+ Yeni Etkinlik'}</button>
 
       {showForm && (
         <form onSubmit={createEvent} className="card border-0 shadow-sm p-3 mb-4">
+          <h5>{editingEvent ? 'Etkinliği Düzenle' : 'Yeni Etkinlik'}</h5>
           <div className="row g-2">
             <div className="col-md-6"><input required className="form-control" placeholder="Başlık" value={form.title} onChange={e => setForm({...form, title: e.target.value})} /></div>
             <div className="col-md-3"><input required type="date" className="form-control" value={form.event_date} onChange={e => setForm({...form, event_date: e.target.value})} /></div>
@@ -406,7 +421,7 @@ function EventsTab() {
             <div className="col-md-3"><input type="number" className="form-control" placeholder="Kapasite" value={form.capacity} onChange={e => setForm({...form, capacity: parseInt(e.target.value)})} /></div>
             <div className="col-md-3"><input type="number" className="form-control" placeholder="Fiyat ₺" value={form.price} onChange={e => setForm({...form, price: parseFloat(e.target.value)})} /></div>
             <div className="col-md-3"><input className="form-control" placeholder="Konum" value={form.location} onChange={e => setForm({...form, location: e.target.value})} /></div>
-            <div className="col-12"><button type="submit" className="btn btn-success">✅ Oluştur</button></div>
+            <div className="col-12"><button type="submit" className="btn btn-success">{editingEvent ? 'Değişiklikleri Kaydet' : 'Oluştur'}</button></div>
           </div>
         </form>
       )}
@@ -428,7 +443,11 @@ function EventsTab() {
                     {ev.is_active ? '✅ Aktif' : '⏸️ Pasif'}
                   </button>
                 </td>
-                <td><button className="btn btn-sm btn-outline-danger" onClick={() => deleteEvent(ev.event_id)}>🗑️</button></td>
+                <td><div className="d-flex gap-1">
+                  <button className="btn btn-sm btn-outline-primary" onClick={() => startEditEvent(ev)}>Düzenle</button>
+                  {ev.is_active && <button className="btn btn-sm btn-outline-danger"
+                    onClick={() => deleteEvent(ev.event_id)}>Kapat</button>}
+                </div></td>
               </tr>
             ))}
           </tbody>
