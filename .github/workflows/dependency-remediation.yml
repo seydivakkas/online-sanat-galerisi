@@ -1,0 +1,63 @@
+name: Trusted dependency lock remediation
+
+on:
+  pull_request:
+    branches:
+      - quality/p3-windows-acceptance
+    paths:
+      - 'backend/package.json'
+      - '.github/workflows/dependency-remediation.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair-lock:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'security/dependency-audit-remediation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact trusted branch commit without saved credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Resolve changed dependency graph and lockfile
+        working-directory: backend
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm audit fix --package-lock-only --ignore-scripts --no-fund || true
+          git diff --exit-code -- package.json
+      - name: Verify repeatable production dependency installation
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: Validate complete security and functional regression
+        working-directory: backend
+        run: |
+          npm run test:security
+          npm run test:payments
+          npm run test:integrity
+          npm run test:admin
+          npm run test:migrations
+      - name: Verify zero high and critical production advisories
+        working-directory: backend
+        run: npm audit --omit=dev --audit-level=high
+      - name: Save only reviewed lockfile into this trusted branch
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet -- backend/package-lock.json; then
+            echo "Lockfile already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/package-lock.json
+          git commit -m "security(deps): resolve audited and tested production lockfile"
+          AUTH_HEADER="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH_HEADER" push             "https://github.com/${GITHUB_REPOSITORY}.git"             HEAD:refs/heads/security/dependency-audit-remediation
