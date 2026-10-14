@@ -4,7 +4,8 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const sequelize = require('../config/database');
 const { Op } = require('sequelize');
 const { sendSuccess, sendError } = require('../utils/response');
-const { verifyBankTransfer, advanceOrderStatus } = require('../services/orderLifecycle');
+const { verifyBankTransfer, refundBankTransfer, advanceOrderStatus } = require('../services/orderLifecycle');
+const { expirePendingOrders } = require('../services/orderHolds');
 
 const router = express.Router();
 
@@ -284,34 +285,47 @@ router.put('/events/:id', requireRole('admin', 'gallery_manager'), async (req, r
   try {
     const event = await Event.findByPk(req.params.id);
     if (!event) return sendError(res, 'Etkinlik bulunamadı', 404);
-
-    const { title, description, event_date, event_time, duration_minutes, capacity, price, location, is_active } = req.body;
-    if (title) event.title = title;
-    if (description !== undefined) event.description = description;
-    if (event_date) event.event_date = event_date;
-    if (event_time) event.event_time = event_time;
-    if (duration_minutes) event.duration_minutes = duration_minutes;
-    if (capacity) event.capacity = capacity;
-    if (price !== undefined) event.price = price;
-    if (location) event.location = location;
-    if (is_active !== undefined) event.is_active = is_active;
-    await event.save();
-
-    sendSuccess(res, event, 'Etkinlik güncellendi');
+    const data = req.body;
+    const changedSlot = (data.event_date && data.event_date !== event.event_date) ||
+      (data.event_time && data.event_time !== event.event_time);
+    const updates = {};
+    for (const key of ['title', 'description', 'event_date', 'event_time',
+      'duration_minutes', 'capacity', 'price', 'location', 'is_active']) {
+      if (data[key] !== undefined) updates[key] = data[key];
+    }
+    const conditions = { event_id: event.event_id };
+    if (changedSlot) conditions.current_registrations = 0;
+    if (data.capacity !== undefined) {
+      const proposed = Number(data.capacity);
+      if (!Number.isSafeInteger(proposed) || proposed < 1) {
+        return sendError(res, 'Kapasite pozitif tam sayı olmalı', 400);
+      }
+      conditions.current_registrations = {
+        ...(changedSlot ? { [Op.eq]: 0 } : {}), [Op.lte]: proposed
+      };
+    }
+    if (data.price !== undefined && Number(data.price) !== Number(event.price) &&
+      Number(event.current_registrations) > 0) {
+      return sendError(res, 'Aktif kayıt varken etkinliğin fiyatı değiştirilemez', 409);
+    }
+    const [changed] = await Event.update(updates, { where: conditions });
+    if (changed !== 1) return sendError(res, 'Aktif rezervasyon nedeniyle tarih/saat veya kapasite değiştirilemez', 409);
+    return sendSuccess(res, await Event.findByPk(event.event_id), 'Etkinlik güncellendi');
   } catch (err) {
-    sendError(res, 'Etkinlik güncelleme hatası: ' + err.message, 500);
+    return sendError(res, 'Etkinlik güncelleme hatası', 500);
   }
 });
 
 // DELETE /api/admin/events/:id
 router.delete('/events/:id', requireRole('admin', 'gallery_manager'), async (req, res) => {
   try {
-    const event = await Event.findByPk(req.params.id);
-    if (!event) return sendError(res, 'Etkinlik bulunamadı', 404);
-    await event.destroy();
-    sendSuccess(res, null, 'Etkinlik silindi');
+    const [changed] = await Event.update({ is_active: false }, {
+      where: { event_id: req.params.id }
+    });
+    if (changed !== 1) return sendError(res, 'Etkinlik bulunamadı', 404);
+    return sendSuccess(res, null, 'Etkinlik kapatıldı; rezervasyon geçmişi korundu');
   } catch (err) {
-    sendError(res, 'Etkinlik silme hatası: ' + err.message, 500);
+    return sendError(res, 'Etkinlik kapatılamadı', 500);
   }
 });
 
@@ -322,6 +336,7 @@ router.delete('/events/:id', requireRole('admin', 'gallery_manager'), async (req
 // GET /api/admin/orders
 router.get('/orders', requireRole('admin', 'gallery_manager'), async (req, res) => {
   try {
+    await expirePendingOrders();
     const orders = await Order.findAll({
       include: [
         { model: OrderItem, as: 'items' },
@@ -339,12 +354,26 @@ router.get('/orders', requireRole('admin', 'gallery_manager'), async (req, res) 
 // Only an active admin may attest to a matching, independently checked bank record.
 router.post('/orders/:id/verify-bank-transfer', requireRole('admin'), async (req, res) => {
   try {
+    await expirePendingOrders();
     const result = await verifyBankTransfer(req.params.id, req.user.id, req.body);
     return sendSuccess(res, result, 'Banka kaydı yönetici tarafından manuel doğrulandı');
   } catch (err) {
     if (err.statusCode) return sendError(res, err.message, err.statusCode);
     console.error('Banka ödeme doğrulama hatası:', err);
     return sendError(res, 'Ödeme doğrulama sırasında sunucu hatası', 500);
+  }
+});
+
+// POST /api/admin/orders/:id/verify-bank-refund
+// Admin attests to an actual outgoing transfer already visible on bank records.
+router.post('/orders/:id/verify-bank-refund', requireRole('admin'), async (req, res) => {
+  try {
+    const result = await refundBankTransfer(req.params.id, req.user.id, req.body);
+    return sendSuccess(res, result, 'Banka çıkış kaydı doğrulandı, iade ve kontenjan düzenlendi');
+  } catch (err) {
+    if (err.statusCode) return sendError(res, err.message, err.statusCode);
+    console.error('Banka iadesi hatası:', err);
+    return sendError(res, 'Banka iadesi tamamlanamadı', 500);
   }
 });
 
