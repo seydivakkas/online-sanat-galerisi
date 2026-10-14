@@ -1,5 +1,6 @@
 const { UniqueConstraintError } = require('sequelize');
 const sequelize = require('../config/database');
+const { withInventoryTransaction } = require('./transactionGate');
 const { Order, OrderItem, OrderStatusAudit, Reservation, Event } = require('../models');
 const { closeOrder } = require('./orderHolds');
 
@@ -54,7 +55,7 @@ function validateBankEvidence(data) {
 async function verifyBankTransfer(orderId, actorId, data) {
   const proof = validateBankEvidence(data || {});
   try {
-    return await sequelize.transaction(async transaction => {
+    return await withInventoryTransaction(async transaction => {
       const order = await Order.findByPk(orderId, { transaction });
       if (!order) throw new OrderTransitionError('Sipariş bulunamadı', 404);
       if (order.status !== 'pending') {
@@ -128,7 +129,7 @@ async function advanceOrderStatus(orderId, actorId, targetStatus) {
     throw new OrderTransitionError('Ödeme ve iptal durumları bu uç noktadan değiştirilemez', 409);
   }
   const expectedPrevious = targetStatus === 'shipped' ? 'paid' : 'shipped';
-  return sequelize.transaction(async transaction => {
+  return withInventoryTransaction(async transaction => {
     const order = await Order.findByPk(orderId, { transaction });
     if (!order) throw new OrderTransitionError('Sipariş bulunamadı', 404);
     if (order.status !== expectedPrevious) {
