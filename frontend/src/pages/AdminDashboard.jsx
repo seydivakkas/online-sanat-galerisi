@@ -527,13 +527,16 @@ function OrdersTab() {
           </div>
           {history.entries.length === 0 ? <p className="text-muted">Henüz denetim kaydı yok.</p> :
             <div className="table-responsive"><table className="table table-sm">
-              <thead><tr><th>Zaman</th><th>İşlemi yapan</th><th>Geçiş</th><th>İşlem referansı</th><th>Kanıt kaynağı</th></tr></thead>
+              <thead><tr><th>Zaman</th><th>İşlemi yapan</th><th>Geçiş</th><th>İşlem referansı</th><th>Kanıt kaynağı</th><th>İşlem tarihi</th><th>Doğrulanan tutar</th><th>Kontrol notu</th></tr></thead>
               <tbody>{history.entries.map(a => <tr key={a.audit_id}>
                 <td>{new Date(a.created_at).toLocaleString('tr-TR')}</td>
                 <td>{a.actor?.username || a.actor_id}</td>
                 <td>{a.from_status} → {a.to_status}</td>
                 <td>{a.payment_reference || '—'}</td>
                 <td>{a.evidence_source || '—'}</td>
+                <td>{a.evidence_date || '—'}</td>
+                <td>{a.verified_amount !== null ? a.verified_amount : '—'}</td>
+                <td>{a.evidence_note || '—'}</td>
               </tr>)}</tbody>
             </table></div>}
         </div>
