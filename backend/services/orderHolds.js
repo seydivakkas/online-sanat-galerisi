@@ -1,5 +1,6 @@
 const { Op } = require('sequelize');
 const sequelize = require('../config/database');
+const { withInventoryTransaction } = require('./transactionGate');
 const { Order, OrderItem, OrderStatusAudit, Reservation, Coupon } = require('../models');
 const { releaseArtwork, releaseEvent, InventoryConflict } = require('./inventory');
 
@@ -68,7 +69,7 @@ async function releaseAllocations(order, transaction, reservationStatus) {
 
 async function closeOrder(id, { actorId = null, userId = null,
   action = 'pending_cancelled', refundEvidence = null } = {}) {
-  return sequelize.transaction(async transaction => {
+  return withInventoryTransaction(async transaction => {
     const order = await Order.findByPk(id, { transaction });
     if (!order) throw new HoldError('Sipariş bulunamadı', 404);
     if (userId && Number(order.user_id) !== Number(userId)) {
