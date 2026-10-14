@@ -29,6 +29,6 @@ jobs:
       - name: Security smoke checks (temporary SQLite)
         working-directory: backend
         run: npm run test:security
-      - name: Scan production dependencies
+      - name: Require zero production dependency advisories
         working-directory: backend
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --audit-level=low
