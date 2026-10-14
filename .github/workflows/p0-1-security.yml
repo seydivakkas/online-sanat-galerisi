@@ -32,9 +32,9 @@ jobs:
       - name: Payment status and audit integration tests
         working-directory: backend
         run: npm run test:payments
-      - name: Scan production dependencies
+      - name: Require zero production dependency advisories
         working-directory: backend
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --audit-level=low
 
   frontend:
     runs-on: ubuntu-latest
