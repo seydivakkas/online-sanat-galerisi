@@ -26,7 +26,7 @@ npm run dev
 
 Üretimde **kalıcı fakat gizli** bir random secret yapılandırma/secret yönetimiyle aktarılmalıdır; koda, README'ye, Git geçmişine veya depoya koymayın. JWT secret değişirse önceki tokenlar geçersizleşir ve kullanıcıların tekrar giriş yapması gerekir. Kullanıcı arayüzünün güncel hali buna 401 yanıtlarında girişe yönlendirerek karşılık verir.
 
-Örnek veritabanı hazırlama komutu `npm run seed`, `sequelize.sync({force:true})` kullanır ve **mevcut kayıtları siler**. Üretim veritabanında çalıştırmayın.
+Örnek veritabanı hazırlama komutu `npm run seed`, `sequelize.sync({force:true})` kullanır ve **mevcut kayıtları siler**. P0.1 ile `NODE_ENV=production` durumunda çalıştırılması engellendi. Eski demo admin/manager hesapları daha önce üretime taşındıysa bunların parolalarını değiştirin veya hesapları devre dışı bırakın.
 
 ## Kabul senaryoları (henüz çalıştırılmadı)
 
