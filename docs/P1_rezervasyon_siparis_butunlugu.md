@@ -1,5 +1,7 @@
 # P1 — Rezervasyon ve Sipariş Bütünlüğü
 
+> **Güncel güvenlik durumu (14 Ekim 2026):** Bağımlılık Issue #2 kapatıldı. Express 4.22.1, Sequelize 6.37.8, sqlite3 6.0.1, uuid 11.1.1 ve qs 6.16.0 doğrulanmış npm lockfile içinde; üretim `npm audit --omit=dev --audit-level=low` **0 bulgu** ve 55/55 test PASS. Aşağıdaki eski audit FAIL kayıtları önceki CI çalışmaları için tarihsel kanıttır. PR'lar Draft/HOLD: stacked dal birleştirme sorunu Issue #11, gerçek migration/Windows/finansal kabul Issue #6 açık.
+
 Durum: **DRAFT / HOLD**. Bu dal PR #4'ün (`security/p0-2-payment-lifecycle`) üstündedir. PR #1 ve PR #4 birleştirilmedi. `master` değiştirilmedi.
 
 ## 1. Tek kaynak ve sistem sınırları
