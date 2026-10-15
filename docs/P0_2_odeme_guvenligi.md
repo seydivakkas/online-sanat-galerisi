@@ -1,5 +1,7 @@
 # P0.2 — Sipariş ve ödeme güvenliği (geliştirme paketi)
 
+> **Güncel güvenlik durumu (14 Ekim 2026):** Bağımlılık Issue #2 kapatıldı. Express 4.22.1, Sequelize 6.37.8, sqlite3 6.0.1, uuid 11.1.1 ve qs 6.16.0 doğrulanmış npm lockfile içinde; üretim `npm audit --omit=dev --audit-level=low` **0 bulgu** ve 55/55 test PASS. Aşağıdaki eski audit FAIL kayıtları önceki CI çalışmaları için tarihsel kanıttır. PR'lar Draft/HOLD: stacked dal birleştirme sorunu Issue #11, gerçek migration/Windows/finansal kabul Issue #6 açık.
+
 ## Durum
 
 **Geliştirme: ayrı, P0.1 üzerine kurulu dal.** PR merge / üretim dağıtımı henüz onaylanmadı. P0.1 PR #1 genel bağımlılık güvenliği sorunu #2 nedeniyle HOLD.
