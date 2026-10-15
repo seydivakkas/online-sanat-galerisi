@@ -1,5 +1,7 @@
 # P0.1 — Kimlik doğrulama, yetkilendirme ve görsel yükleme sertleştirmesi
 
+> **Güncel güvenlik durumu (14 Ekim 2026):** Bağımlılık Issue #2 kapatıldı. Express 4.22.1, Sequelize 6.37.8, sqlite3 6.0.1, uuid 11.1.1 ve qs 6.16.0 doğrulanmış npm lockfile içinde; üretim `npm audit --omit=dev --audit-level=low` **0 bulgu** ve 55/55 test PASS. Aşağıdaki eski audit FAIL kayıtları önceki CI çalışmaları için tarihsel kanıttır. PR'lar Draft/HOLD: stacked dal birleştirme sorunu Issue #11, gerçek migration/Windows/finansal kabul Issue #6 açık.
+
 Durum: **DRAFT / HOLD**. Multer 2.4.0'a yükseltildi, `npm ci` PASS, kritik P0.1 güvenlik smoke testleri 10/10 PASS; ancak genel `npm audit` 18 bulgu nedeniyle FAIL.
 
 ## Uygulanan değişiklikler
