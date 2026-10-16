@@ -50,14 +50,18 @@ function assertInput(source, destDir) {
   if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) {
     throw new Error('Output must be an existing private directory (no symlinks)');
   }
-  if (fs.realpathSync.native(src) !== src || fs.realpathSync.native(dir) !== dir) {
-    throw new Error('Canonical paths required; junctions/symlinks are not allowed');
-  }
-  if (dir === path.dirname(src)) {
+  // Windows often canonicalizes drive/path casing even for ordinary files.
+  // Leaf symlinks were refused by lstat above; canonical paths are used for
+  // comparisons and Git-worktree checks without rejecting valid Windows dirs.
+  const canonicalSource = fs.realpathSync.native(src);
+  const canonicalDir = fs.realpathSync.native(dir);
+  const comparable = value => process.platform === 'win32'
+    ? path.normalize(value).toLowerCase() : path.normalize(value);
+  if (comparable(canonicalDir) === comparable(path.dirname(canonicalSource))) {
     throw new Error('Choose a separate protected directory for the snapshot');
   }
   // Do not leave copies containing PII in repositories or their subdirectories.
-  for (let ancestor = dir; ; ancestor = path.dirname(ancestor)) {
+  for (let ancestor = canonicalDir; ; ancestor = path.dirname(ancestor)) {
     if (fs.existsSync(path.join(ancestor, '.git'))) {
       throw new Error('Refusing to write customer data within a Git worktree');
     }
@@ -72,7 +76,7 @@ function assertInput(source, destDir) {
       throw new Error('Source has no valid SQLite database header');
     }
   } finally { fs.closeSync(fd); }
-  return { src, dir };
+  return { src: canonicalSource, dir: canonicalDir };
 }
 
 async function prepareOfflineSnapshot(source, destDir) {
