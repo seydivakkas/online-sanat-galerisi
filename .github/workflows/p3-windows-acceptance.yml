@@ -34,7 +34,8 @@ jobs:
           $files = @(
             'deployment/Install-Windows.ps1',
             'deployment/Start-Local.ps1',
-            'deployment/Migrate-Database.ps1'
+            'deployment/Migrate-Database.ps1',
+            'deployment/Prepare-Offline-Acceptance.ps1'
           )
           foreach ($name in $files) {
             $errors = $null
@@ -48,6 +49,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Migration tests failed" }
           npm run test:acceptance
           if ($LASTEXITCODE -ne 0) { throw "Offline acceptance tests failed" }
+          npm run test:offline-backup
+          if ($LASTEXITCODE -ne 0) { throw "Offline snapshot and restore tests failed" }
       - name: Start Windows gallery and test same-origin site
         shell: pwsh
         run: |
