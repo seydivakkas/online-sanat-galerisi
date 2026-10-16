@@ -8,6 +8,7 @@ $dataRoot = Join-Path $env:LOCALAPPDATA 'ArtGallery'
 $env:NODE_ENV = 'local'
 $env:ART_GALLERY_DATA_DIR = $dataRoot
 $env:PORT = '3001'
+$env:HOST = '127.0.0.1'  # Local-only: do not expose gallery to the LAN.
 
 New-Item -Force -ItemType Directory -Path $dataRoot | Out-Null
 $secretFile = Join-Path $dataRoot 'jwt-secret.txt'
@@ -28,6 +29,19 @@ if (-not (Test-Path (Join-Path $backend 'node_modules')) -or
     -not (Test-Path (Join-Path $frontend 'dist/index.html'))) {
     throw 'Kurulum/build eksik. Once deployment/Install-Windows.ps1 calistirin.'
 }
+# The FileStream stays open while Node runs and is released automatically after
+# a normal exit or crash. No PID file and no removal of a potentially live lock.
+# This protects only instances started with the supported Windows launcher.
+$lockPath = Join-Path $dataRoot 'gallery-instance.lock'
+$lockStream = $null
+try {
+    $lockStream = [System.IO.File]::Open(
+        $lockPath, [System.IO.FileMode]::OpenOrCreate,
+        [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+} catch [System.IO.IOException] {
+    throw 'Galeri zaten bu veri klasorunden calisiyor. Ikinci bir ornek acilamaz.'
+}
+
 Push-Location $backend
 try {
     $dbFile = Join-Path $dataRoot 'art-gallery.sqlite'
@@ -45,4 +59,5 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Sunucu baslatilamadi' }
 } finally {
     Pop-Location
+    if ($null -ne $lockStream) { $lockStream.Dispose() }
 }

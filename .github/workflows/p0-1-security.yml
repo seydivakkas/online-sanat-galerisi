@@ -44,6 +44,9 @@ jobs:
       - name: P3 offline snapshot and independent restore acceptance tests
         working-directory: backend
         run: npm run test:acceptance
+      - name: P3 offline backup and restore privacy tests
+        working-directory: backend
+        run: npm run test:offline-backup
       - name: Require zero production dependency advisories
         working-directory: backend
         run: npm audit --omit=dev --audit-level=low

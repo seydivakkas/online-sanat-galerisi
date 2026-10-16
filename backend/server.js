@@ -9,6 +9,7 @@ const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const HOST = process.env.HOST || (process.env.NODE_ENV === 'local' ? '127.0.0.1' : '0.0.0.0');
 
 // Middleware
 const allowedOrigins = new Set((process.env.CORS_ORIGINS || '').split(',')
@@ -84,8 +85,8 @@ async function start() {
     }, 60 * 1000);
     sweeper.unref();
 
-    app.listen(PORT, () => {
-      console.log(`Sunucu http://localhost:${PORT} adresinde çalışıyor`);
+    app.listen(PORT, HOST, () => {
+      console.log(`Sunucu http://${HOST}:${PORT} adresinde çalışıyor`);
     });
   } catch (err) {
     console.error('Başlatma hatası:', err);
