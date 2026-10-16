@@ -14,7 +14,8 @@
     "db:plan": "node migrations/runner.js --plan",
     "db:migrate": "node migrations/runner.js --apply",
     "db:init-empty": "node migrations/runner.js --apply --init-empty",
-    "test:migrations": "node --test tests/p2-migration.test.js"
+    "test:migrations": "node --test tests/p2-migration.test.js",
+    "test:acceptance": "node --test tests/p3-acceptance.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

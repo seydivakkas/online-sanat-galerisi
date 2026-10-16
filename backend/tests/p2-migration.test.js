@@ -14,6 +14,8 @@ const { DataTypes } = require('sequelize');
 const { sequelize, User, Artist, Category, Artwork, Event,
   Order, Reservation, OrderStatusAudit } = require('../models');
 const { inspectSchema, assertSchemaReady, applyMigrations } = require('../migrations/runner');
+const sqlite3 = require('sqlite3');
+let preMigrationBackupPath;
 
 after(async () => {
   await sequelize.close();
@@ -60,6 +62,7 @@ test('schema inspection and additive P2 migration preserve legacy rows', async (
   });
   const beforeAuditCount = await OrderStatusAudit.count();
   const applied = await applyMigrations();
+  preMigrationBackupPath = applied.backupPath;
   assert.ok(applied.backupPath && fs.existsSync(applied.backupPath),
     'SQLite backup must exist before migration');
   assert.ok(applied.changes.includes('orders.expires_at'));
@@ -91,4 +94,44 @@ test('system expiration actor is nullable after migration', async () => {
     to_status: 'cancelled'
   });
   assert.equal(entry.actor_id, null);
+});
+
+
+test('independent restore drill can reopen pre-migration backup with all legacy records', async () => {
+  assert.ok(preMigrationBackupPath && fs.existsSync(preMigrationBackupPath));
+  const restorePath = path.join(scratch, 'independent-restore.sqlite');
+  assert.ok(!fs.existsSync(restorePath));
+  fs.copyFileSync(preMigrationBackupPath, restorePath, fs.constants.COPYFILE_EXCL);
+  const db = await new Promise((resolve, reject) => {
+    const connection = new sqlite3.Database(restorePath, sqlite3.OPEN_READONLY,
+      err => err ? reject(err) : resolve(connection));
+  });
+  const all = sql => new Promise((resolve, reject) =>
+    db.all(sql, [], (err, rows) => err ? reject(err) : resolve(rows)));
+  try {
+    const quick = await all('PRAGMA quick_check');
+    assert.equal(Object.values(quick[0])[0], 'ok');
+    const userCount = await all('SELECT COUNT(*) AS n FROM users');
+    const artCount = await all('SELECT COUNT(*) AS n FROM artworks');
+    const orders = await all('SELECT order_id, status, total_amount FROM orders');
+    const bookings = await all('SELECT reservation_id, participant_count, status FROM reservations');
+    const audits = await all('SELECT action, payment_reference FROM order_status_audits');
+    assert.equal(userCount[0].n, 1);
+    assert.equal(artCount[0].n, 1);
+    assert.equal(orders.length, 1);
+    assert.equal(bookings.length, 1);
+    assert.equal(audits.length, 1);
+    assert.equal(audits[0].payment_reference, 'LEGACY-PAY-0001');
+    assert.equal(orders[0].status, 'paid');
+    assert.equal(bookings[0].status, 'confirmed');
+    const columns = await all("PRAGMA table_info('orders')");
+    assert.ok(!columns.some(c => c.name === 'expires_at'),
+      'restored file must still contain the original, pre-migration schema');
+    const originalAfterMigration = await OrderStatusAudit.count();
+    assert.equal(originalAfterMigration, 2,
+      'migration database remains independent of the restored legacy backup');
+  } finally {
+    await new Promise((resolve, reject) =>
+      db.close(err => err ? reject(err) : resolve()));
+  }
 });
