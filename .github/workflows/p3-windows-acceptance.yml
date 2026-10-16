@@ -68,6 +68,19 @@ jobs:
               if (Test-Path $err) { Get-Content $err -Tail 50 }
               throw "Windows local API did not start"
             }
+            # A second Windows launcher must fail quickly without touching
+            # the first instance's database or interrupting its API.
+            $duplicateOut = Join-Path $env:RUNNER_TEMP 'gallery.duplicate.stdout.log'
+            $duplicateErr = Join-Path $env:RUNNER_TEMP 'gallery.duplicate.stderr.log'
+            $duplicate = Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + $script + '"') -PassThru -WindowStyle Hidden -RedirectStandardOutput $duplicateOut -RedirectStandardError $duplicateErr
+            if (-not $duplicate.WaitForExit(10000)) {
+              try { taskkill.exe /T /F /PID $duplicate.Id | Out-Null } catch { }
+              throw 'Duplicate Windows launcher did not terminate'
+            }
+            if ($duplicate.ExitCode -eq 0) { throw 'Duplicate launcher unexpectedly succeeded' }
+            $stillHealthy = Invoke-RestMethod -Uri 'http://127.0.0.1:3001/api/health' -TimeoutSec 2
+            if ($stillHealthy.status -ne 'ok') { throw 'Existing gallery was disrupted by duplicate start' }
+            Write-Host 'Windows single-instance guard: PASS'
             $response = Invoke-WebRequest -Uri 'http://127.0.0.1:3001/' -UseBasicParsing -TimeoutSec 10
             if ($response.StatusCode -ne 200 -or $response.Content -notmatch '<div id="root"') {
               throw 'React same-origin root was not served'
