@@ -38,6 +38,9 @@ jobs:
       - name: P1.3 administrator module integration tests
         working-directory: backend
         run: npm run test:admin
+      - name: P2 database migration and backup integration tests
+        working-directory: backend
+        run: npm run test:migrations
       - name: Require zero production dependency advisories
         working-directory: backend
         run: npm audit --omit=dev --audit-level=low

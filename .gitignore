@@ -74,3 +74,17 @@ ehthumbs.db
 antigravity-kit-tr/
 .gemini/
 ai_agent_setup.py
+
+# P2: runtime data and dependency folders (already tracked files require separate git rm --cached)
+node_modules/
+**/node_modules/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.backup
+*.backup-*
+*.pre-p2-*
+jwt-secret.txt
+backend/data/
+data/

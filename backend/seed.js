@@ -1,6 +1,9 @@
-// Demo accounts and destructive seed operations must never run in production.
-if (process.env.NODE_ENV === 'production') {
-  throw new Error('Demo seed is disabled in production');
+// DEMO DATA ONLY. This command never drops existing tables.
+// It is intentionally disabled unless an operator opts into demo records
+// on a development database with no application users/orders.
+if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'test' ||
+    !process.argv.includes('--demo') || process.env.ALLOW_DEMO_SEED !== 'YES') {
+  throw new Error('Demo seed requires NODE_ENV=development, ALLOW_DEMO_SEED=YES and --demo. Production/test seed prohibited.');
 }
 
 const bcrypt = require('bcryptjs');
@@ -8,8 +11,17 @@ const { sequelize, User, Artist, Category, Artwork, Event, Reservation, Order, O
 
 async function seed() {
   try {
-    await sequelize.sync({ force: true });
-    console.log('Tablolar sıfırlandı');
+    await sequelize.sync();
+    const { OrderStatusAudit } = require('./models');
+    const collections = [User, Artist, Category, Artwork, Event, Reservation,
+      Order, OrderItem, Favorite, Review, ReviewVote, ReviewReply, Coupon,
+      SupportTicket, SupportMessage, Comparison, OrderStatusAudit];
+    for (const model of collections) {
+      if (await model.count() > 0) {
+        throw new Error('Demo seed reddedildi: veritabanında mevcut kayıtlar var. İşlem yapılmadı.');
+      }
+    }
+    console.log('Boş geliştirme veritabanı doğrulandı; demo kayıtları ekleniyor');
 
     const hash = await bcrypt.hash('password123', 12);
 

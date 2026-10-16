@@ -16,6 +16,10 @@ Full-stack web uygulaması: sanat eserlerini keşfedin, atölye çalışmaların
 
 ## Kurulum
 
+## P2 — Windows yerel dağıtımı ve veritabanı geçişi
+
+P2 dalında mevcut veriyi silmeyen SQLite migration, açık onay gerektiren demo seed, kalıcı kullanıcı verisi ve tek sunucu üzerinden React arayüzü eklenmiştir. Windows'ta ilk kurulum için `deployment/Install-Windows.ps1`, yerel çalıştırma için `deployment/Start-Local.ps1`, eski veritabanı geçişi için `deployment/Migrate-Database.ps1` kullanılabilir. **Gerçek kullanıcı veritabanını migration yapmadan yeni sürümde başlatmayın.** Ayrıntı ve riskler: [P2 teknik notu](docs/P2_veritabani_windows_dagitim.md). P0–P2 PR'ları bağımlılık audit ve üretim kabul engelleri nedeniyle DRAFT / HOLD durumundadır.
+
 ## P1 — Etkinlik, sipariş ve kontenjan bütünlüğü (Draft / HOLD)
 
 Etkinlik biletleri ilan edilen **sabit tarih ve saat** üzerinden, siparişle bağlantılı rezervasyon olarak oluşturulur. Ücretli rezervasyon ödeme beklerken `pending`; yalnızca admin tarafından bağımsız banka ekstresi kontrolüyle onaylanan havale sonrasında `confirmed` olur. Ücretsiz etkinlik rezervasyonları doğrudan onaylanır.
