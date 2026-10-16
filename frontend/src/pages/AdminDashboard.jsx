@@ -3,6 +3,8 @@ import { toast } from 'react-hot-toast';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend } from 'chart.js';
 import { adminAPI } from '../services/api';
+import AdminCatalogManagement from './AdminCatalogManagement';
+import AdminSupportManagement from './AdminSupportManagement';
 import { useAuth } from '../context/AuthContext';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
@@ -18,8 +20,10 @@ export default function AdminDashboard() {
     { key: 'dashboard', label: '📊 Dashboard', roles: ['admin', 'gallery_manager'] },
     { key: 'users', label: '👥 Kullanıcılar', roles: ['admin'] },
     { key: 'artworks', label: '🖼️ Eserler', roles: ['admin', 'gallery_manager'] },
+    { key: 'artists', label: '🎨 Sanatçılar & Kategoriler', roles: ['admin', 'gallery_manager'] },
     { key: 'events', label: '📅 Etkinlikler', roles: ['admin', 'gallery_manager'] },
     { key: 'orders', label: '📦 Siparişler', roles: ['admin', 'gallery_manager'] },
+    { key: 'support', label: '📨 Destek Talepleri', roles: ['admin', 'gallery_manager'] },
     { key: 'reviews', label: '💬 Yorumlar', roles: ['admin', 'gallery_manager'] },
     { key: 'coupons', label: '🎟️ Kuponlar', roles: ['admin'] },
   ];
@@ -40,8 +44,10 @@ export default function AdminDashboard() {
       {tab === 'dashboard' && <DashboardTab />}
       {tab === 'users' && isAdmin && <UsersTab />}
       {tab === 'artworks' && <ArtworksTab />}
+      {tab === 'artists' && <AdminCatalogManagement />}
       {tab === 'events' && <EventsTab />}
       {tab === 'orders' && <OrdersTab />}
+      {tab === 'support' && <AdminSupportManagement />}
       {tab === 'reviews' && <ReviewsTab />}
       {tab === 'coupons' && isAdmin && <CouponsTab />}
     </div>
@@ -205,12 +211,42 @@ function ArtworksTab() {
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState(null);
   const [editForm, setEditForm] = useState({});
+  const [showCreate, setShowCreate] = useState(false);
+  const [artists, setArtists] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [createForm, setCreateForm] = useState({
+    title: '', description: '', artist_id: '', category_id: '',
+    price: '0', stock_quantity: '1', image: null
+  });
 
   const load = () => {
     setLoading(true);
     adminAPI.getArtworks().then(r => setArtworks(r.data || [])).catch(() => {}).finally(() => setLoading(false));
   };
   useEffect(load, []);
+  useEffect(() => {
+    Promise.all([adminAPI.getArtists(), adminAPI.getCategories()])
+      .then(([a, c]) => { setArtists(a.data || []); setCategories(c.data || []); })
+      .catch(() => toast.error('Sanatçı/kategori seçenekleri alınamadı'));
+  }, []);
+
+  const createArtwork = async (e) => {
+    e.preventDefault();
+    const data = new FormData();
+    for (const [key, value] of Object.entries(createForm)) {
+      if (value !== null && value !== '') data.append(key, value);
+    }
+    try {
+      await adminAPI.createArtwork(data);
+      toast.success('Yeni eser kataloğa eklendi');
+      setShowCreate(false);
+      setCreateForm({ title: '', description: '', artist_id: '', category_id: '',
+        price: '0', stock_quantity: '1', image: null });
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Eser eklenemedi');
+    }
+  };
 
   const startEdit = (a) => { setEditId(a.artwork_id); setEditForm({ title: a.title, price: a.price, stock_quantity: a.stock_quantity, is_available: a.is_available }); };
   const cancelEdit = () => { setEditId(null); setEditForm({}); };
@@ -222,14 +258,52 @@ function ArtworksTab() {
     } catch (err) { toast.error(err.response?.data?.error || 'Hata'); }
   };
   const deleteArtwork = async (id) => {
-    if (!window.confirm('Bu eseri silmek istediğinize emin misiniz?')) return;
-    try { await adminAPI.deleteArtwork(id); toast.success('Eser silindi'); load(); } catch (err) { toast.error(err.response?.data?.error || 'Hata'); }
+    if (!window.confirm('Eser satıştan kaldırılsın mı? Eski sipariş kayıtları korunacak.')) return;
+    try { await adminAPI.deleteArtwork(id); toast.success('Eser satıştan kaldırıldı'); load(); } catch (err) { toast.error(err.response?.data?.error || 'Hata'); }
   };
 
   if (loading) return <div className="text-center py-5"><div className="spinner-border"></div></div>;
 
   return (
-    <div className="table-responsive">
+    <div>
+      <button className="btn btn-dark mb-3" onClick={() => setShowCreate(!showCreate)}>
+        {showCreate ? 'Vazgeç' : '+ Yeni Eser Ekle'}
+      </button>
+      {showCreate && <form onSubmit={createArtwork} className="card p-3 mb-3">
+        <h5>Eser Oluştur</h5>
+        <div className="row g-2">
+          <div className="col-md-6"><label className="form-label">Başlık</label>
+            <input className="form-control" required maxLength={150} value={createForm.title}
+              onChange={e => setCreateForm({ ...createForm, title: e.target.value })}/></div>
+          <div className="col-md-3"><label className="form-label">Sanatçı</label>
+            <select className="form-select" required value={createForm.artist_id}
+              onChange={e => setCreateForm({ ...createForm, artist_id: e.target.value })}>
+              <option value="">Seçiniz</option>
+              {artists.filter(a => a.is_active).map(a => <option value={a.artist_id} key={a.artist_id}>{a.name}</option>)}
+            </select></div>
+          <div className="col-md-3"><label className="form-label">Kategori</label>
+            <select className="form-select" required value={createForm.category_id}
+              onChange={e => setCreateForm({ ...createForm, category_id: e.target.value })}>
+              <option value="">Seçiniz</option>
+              {categories.map(cat => <option key={cat.category_id} value={cat.category_id}>{cat.name}</option>)}
+            </select></div>
+          <div className="col-md-3"><label className="form-label">Fiyat ₺</label>
+            <input className="form-control" required type="number" min="0" step="0.01"
+              value={createForm.price} onChange={e => setCreateForm({ ...createForm, price: e.target.value })}/></div>
+          <div className="col-md-3"><label className="form-label">Stok</label>
+            <input className="form-control" required type="number" min="0" step="1"
+              value={createForm.stock_quantity}
+              onChange={e => setCreateForm({ ...createForm, stock_quantity: e.target.value })}/></div>
+          <div className="col-md-6"><label className="form-label">Görsel (en fazla 5 MB)</label>
+            <input className="form-control" type="file" accept="image/png,image/jpeg,image/webp,image/gif"
+              onChange={e => setCreateForm({ ...createForm, image: e.target.files?.[0] || null })}/></div>
+          <div className="col-12"><label className="form-label">Açıklama</label>
+            <textarea className="form-control" rows={2} value={createForm.description}
+              onChange={e => setCreateForm({ ...createForm, description: e.target.value })}/></div>
+          <div className="col-12"><button className="btn btn-success" type="submit">Eseri Kaydet</button></div>
+        </div>
+      </form>}
+      <div className="table-responsive">
       <table className="table table-hover table-bordered align-middle">
         <thead className="table-dark">
           <tr><th>ID</th><th>Eser</th><th>Sanatçı</th><th>Kategori</th><th>Fiyat</th><th>Stok</th><th>Aktif</th><th>İşlemler</th></tr>
@@ -277,6 +351,7 @@ function ArtworksTab() {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -288,6 +363,7 @@ function EventsTab() {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null);
   const [form, setForm] = useState({ title: '', description: '', event_date: '', event_time: '', duration_minutes: 120, capacity: 20, price: 0, location: '' });
 
   const load = () => {
@@ -298,8 +374,19 @@ function EventsTab() {
 
   const createEvent = async (e) => {
     e.preventDefault();
-    try { await adminAPI.createEvent(form); toast.success('Etkinlik oluşturuldu'); setShowForm(false); setForm({ title: '', description: '', event_date: '', event_time: '', duration_minutes: 120, capacity: 20, price: 0, location: '' }); load(); }
+    try { if (editingEvent) await adminAPI.updateEvent(editingEvent, form);
+      else await adminAPI.createEvent(form);
+      toast.success(editingEvent ? 'Etkinlik güncellendi' : 'Etkinlik oluşturuldu');
+      setEditingEvent(null); setShowForm(false); setForm({ title: '', description: '', event_date: '', event_time: '', duration_minutes: 120, capacity: 20, price: 0, location: '' }); load(); }
     catch (err) { toast.error(err.response?.data?.error || 'Hata'); }
+  };
+
+  const startEditEvent = (ev) => {
+    setEditingEvent(ev.event_id);
+    setForm({ title: ev.title, description: ev.description || '', event_date: ev.event_date,
+      event_time: ev.event_time, duration_minutes: ev.duration_minutes || 120,
+      capacity: ev.capacity, price: ev.price || 0, location: ev.location || '' });
+    setShowForm(true);
   };
 
   const toggleActive = async (ev) => {
@@ -308,20 +395,23 @@ function EventsTab() {
   };
 
   const deleteEvent = async (id) => {
-    if (!window.confirm('Bu etkinliği silmek istediğinize emin misiniz?')) return;
-    try { await adminAPI.deleteEvent(id); toast.success('Etkinlik silindi'); load(); } catch (err) { toast.error('Hata'); }
+    if (!window.confirm('Bu etkinlik pasifleştirilsin mi? Mevcut kayıtlar korunacak.')) return;
+    try { await adminAPI.deleteEvent(id); toast.success('Etkinlik kapatıldı'); load(); } catch (err) { toast.error('Hata'); }
   };
 
   if (loading) return <div className="text-center py-5"><div className="spinner-border"></div></div>;
 
   return (
     <>
-      <button className="btn btn-dark mb-3" onClick={() => setShowForm(!showForm)}>
-        {showForm ? '❌ İptal' : '➕ Yeni Etkinlik'}
-      </button>
+      <button className="btn btn-dark mb-3" onClick={() => {
+        setEditingEvent(null); setForm({ title: '', description: '', event_date: '',
+          event_time: '', duration_minutes: 120, capacity: 20, price: 0, location: '' });
+        setShowForm(!showForm);
+      }}>{showForm ? 'Vazgeç' : '+ Yeni Etkinlik'}</button>
 
       {showForm && (
         <form onSubmit={createEvent} className="card border-0 shadow-sm p-3 mb-4">
+          <h5>{editingEvent ? 'Etkinliği Düzenle' : 'Yeni Etkinlik'}</h5>
           <div className="row g-2">
             <div className="col-md-6"><input required className="form-control" placeholder="Başlık" value={form.title} onChange={e => setForm({...form, title: e.target.value})} /></div>
             <div className="col-md-3"><input required type="date" className="form-control" value={form.event_date} onChange={e => setForm({...form, event_date: e.target.value})} /></div>
@@ -331,7 +421,7 @@ function EventsTab() {
             <div className="col-md-3"><input type="number" className="form-control" placeholder="Kapasite" value={form.capacity} onChange={e => setForm({...form, capacity: parseInt(e.target.value)})} /></div>
             <div className="col-md-3"><input type="number" className="form-control" placeholder="Fiyat ₺" value={form.price} onChange={e => setForm({...form, price: parseFloat(e.target.value)})} /></div>
             <div className="col-md-3"><input className="form-control" placeholder="Konum" value={form.location} onChange={e => setForm({...form, location: e.target.value})} /></div>
-            <div className="col-12"><button type="submit" className="btn btn-success">✅ Oluştur</button></div>
+            <div className="col-12"><button type="submit" className="btn btn-success">{editingEvent ? 'Değişiklikleri Kaydet' : 'Oluştur'}</button></div>
           </div>
         </form>
       )}
@@ -353,7 +443,11 @@ function EventsTab() {
                     {ev.is_active ? '✅ Aktif' : '⏸️ Pasif'}
                   </button>
                 </td>
-                <td><button className="btn btn-sm btn-outline-danger" onClick={() => deleteEvent(ev.event_id)}>🗑️</button></td>
+                <td><div className="d-flex gap-1">
+                  <button className="btn btn-sm btn-outline-primary" onClick={() => startEditEvent(ev)}>Düzenle</button>
+                  {ev.is_active && <button className="btn btn-sm btn-outline-danger"
+                    onClick={() => deleteEvent(ev.event_id)}>Kapat</button>}
+                </div></td>
               </tr>
             ))}
           </tbody>
@@ -647,6 +741,7 @@ function CouponsTab() {
   const [coupons, setCoupons] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingCoupon, setEditingCoupon] = useState(null);
   const [form, setForm] = useState({ code: '', discount_percent: '', discount_amount: '', valid_from: '', valid_until: '', max_uses: 100 });
 
   const load = () => {
@@ -661,12 +756,23 @@ function CouponsTab() {
       const data = { ...form };
       if (!data.discount_percent) delete data.discount_percent;
       if (!data.discount_amount) delete data.discount_amount;
-      await adminAPI.createCoupon(data);
-      toast.success('Kupon oluşturuldu');
+      if (editingCoupon) await adminAPI.updateCoupon(editingCoupon, data);
+      else await adminAPI.createCoupon(data);
+      toast.success(editingCoupon ? 'Kupon güncellendi' : 'Kupon oluşturuldu');
+      setEditingCoupon(null);
       setShowForm(false);
       setForm({ code: '', discount_percent: '', discount_amount: '', valid_from: '', valid_until: '', max_uses: 100 });
       load();
     } catch (err) { toast.error(err.response?.data?.error || 'Hata'); }
+  };
+
+  const editCoupon = c => {
+    setEditingCoupon(c.coupon_id);
+    setForm({
+      code: c.code, discount_percent: c.discount_percent || '', discount_amount: c.discount_amount || '',
+      valid_from: c.valid_from || '', valid_until: c.valid_until || '', max_uses: c.max_uses ?? 100
+    });
+    setShowForm(true);
   };
 
   const deleteCoupon = async (id) => {
@@ -678,12 +784,15 @@ function CouponsTab() {
 
   return (
     <>
-      <button className="btn btn-dark mb-3" onClick={() => setShowForm(!showForm)}>
-        {showForm ? '❌ İptal' : '➕ Yeni Kupon'}
-      </button>
+      <button className="btn btn-dark mb-3" onClick={() => {
+        setEditingCoupon(null);
+        setForm({ code: '', discount_percent: '', discount_amount: '', valid_from: '', valid_until: '', max_uses: 100 });
+        setShowForm(!showForm);
+      }}>{showForm ? 'Vazgeç' : '+ Yeni Kupon'}</button>
 
       {showForm && (
         <form onSubmit={createCoupon} className="card border-0 shadow-sm p-3 mb-4">
+          <h5>{editingCoupon ? 'Kuponu Düzenle' : 'Yeni Kupon'}</h5>
           <div className="row g-2">
             <div className="col-md-3"><input required className="form-control" placeholder="Kupon Kodu" value={form.code} onChange={e => setForm({...form, code: e.target.value.toUpperCase()})} /></div>
             <div className="col-md-3"><input type="number" className="form-control" placeholder="İndirim %" value={form.discount_percent} onChange={e => setForm({...form, discount_percent: e.target.value, discount_amount: ''})} /></div>
@@ -691,7 +800,7 @@ function CouponsTab() {
             <div className="col-md-3"><input type="number" className="form-control" placeholder="Max Kullanım" value={form.max_uses} onChange={e => setForm({...form, max_uses: parseInt(e.target.value)})} /></div>
             <div className="col-md-4"><label className="form-label small">Başlangıç</label><input type="date" className="form-control" value={form.valid_from} onChange={e => setForm({...form, valid_from: e.target.value})} /></div>
             <div className="col-md-4"><label className="form-label small">Bitiş</label><input type="date" className="form-control" value={form.valid_until} onChange={e => setForm({...form, valid_until: e.target.value})} /></div>
-            <div className="col-md-4 d-flex align-items-end"><button type="submit" className="btn btn-success w-100">✅ Oluştur</button></div>
+            <div className="col-md-4 d-flex align-items-end"><button type="submit" className="btn btn-success w-100">{editingCoupon ? 'Kaydet' : 'Oluştur'}</button></div>
           </div>
         </form>
       )}
@@ -709,7 +818,10 @@ function CouponsTab() {
                 <td>{c.valid_until || '-'}</td>
                 <td>{c.used_count}/{c.max_uses}</td>
                 <td>{c.is_user_specific ? `👤 #${c.target_user_id}` : 'Genel'}</td>
-                <td><button className="btn btn-sm btn-outline-danger" onClick={() => deleteCoupon(c.coupon_id)}>🗑️</button></td>
+                <td><div className="d-flex gap-1"><button className="btn btn-sm btn-outline-primary"
+                    onClick={() => editCoupon(c)}>Düzenle</button>
+                  <button className="btn btn-sm btn-outline-danger" onClick={() => deleteCoupon(c.coupon_id)}>Sil</button>
+                </div></td>
               </tr>
             ))}
           </tbody>
