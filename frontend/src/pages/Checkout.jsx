@@ -6,7 +6,7 @@ import { orderAPI, couponAPI } from '../services/api';
 
 export default function Checkout() {
   const { cart, removeFromCart, updateQuantity, totalAmount, clearCart } = useCart();
-  const [paymentMethod, setPaymentMethod] = useState('credit_card');
+  const paymentMethod = 'bank_transfer';
   const [couponCode, setCouponCode] = useState('');
   const [discount, setDiscount] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -45,7 +45,7 @@ export default function Checkout() {
         quantity: i.quantity
       }));
       await orderAPI.create({ items, payment_method: paymentMethod, coupon_code: couponCode || undefined });
-      toast.success('Siparişiniz başarıyla alındı! Teşekkür ederiz.');
+      toast.success('Sipariş talebiniz alındı. Ödeme henüz doğrulanmadı.');
       clearCart();
       setTimeout(() => navigate('/orders'), 2000);
     } catch (err) {
@@ -115,11 +115,19 @@ export default function Checkout() {
             <div className="card shadow-sm border-0 mb-3">
               <div className="card-body">
                 <h5 className="fw-bold mb-3">Ödeme Tercihleri</h5>
-                <select className="form-select mb-3" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
-                  <option value="credit_card">Kredi Kartı</option>
-                  <option value="bank_transfer">Havale / EFT</option>
-                  <option value="paypal">PayPal</option>
-                </select>
+                <div className="alert alert-info small" role="status">
+                  Şu anda yalnızca manuel banka havalesi sipariş talebi kabul ediliyor.
+                  Sipariş oluşturmak ödeme yaptığınız anlamına gelmez. Banka bilgileri ve ödeme talimatı
+                  galeri yönetimi tarafından doğrulanmış iletişim kanalından sağlanmalıdır.
+                  Kart ve PayPal ödeme altyapıları henüz kullanılabilir değil.
+                </div>
+                <div className="mb-3 fw-semibold">Havale / EFT — ödeme bekliyor</div>
+                {cart.some(item => item.item_type === 'event') && (
+                  <div className="alert alert-warning small" role="alert">
+                    Etkinlik biletlerinin ödeme–rezervasyon bağlantısı henüz tamamlanmadı.
+                    Bilet içeren sepetler için sipariş oluşturma geçici olarak kapalıdır.
+                  </div>
+                )}
 
                 <h6 className="fw-semibold">İndirim Kuponu</h6>
                 <div className="input-group mb-2">
@@ -147,8 +155,8 @@ export default function Checkout() {
                   <span>Genel Toplam:</span>
                   <span>{finalTotal.toLocaleString('tr-TR')} ₺</span>
                 </div>
-                <button className="btn btn-light w-100 fw-bold py-2" onClick={handleCheckout} disabled={loading}>
-                  {loading ? 'İşleniyor...' : 'Onayla ve Öde'}
+                <button className="btn btn-light w-100 fw-bold py-2" onClick={handleCheckout} disabled={loading || cart.some(item => item.item_type === 'event')}>
+                  {loading ? 'İşleniyor...' : 'Sipariş Talebi Oluştur'}
                 </button>
               </div>
             </div>

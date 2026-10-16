@@ -1,9 +1,10 @@
 const express = require('express');
-const { User, Artwork, Artist, Category, Event, Order, OrderItem, Reservation, Review, ReviewReply, Favorite, Coupon, SupportTicket, SupportMessage } = require('../models');
+const { User, Artwork, Artist, Category, Event, Order, OrderItem, OrderStatusAudit, Reservation, Review, ReviewReply, Favorite, Coupon, SupportTicket, SupportMessage } = require('../models');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const sequelize = require('../config/database');
 const { Op } = require('sequelize');
 const { sendSuccess, sendError } = require('../utils/response');
+const { verifyBankTransfer, advanceOrderStatus } = require('../services/orderLifecycle');
 
 const router = express.Router();
 
@@ -334,21 +335,46 @@ router.get('/orders', requireRole('admin', 'gallery_manager'), async (req, res) 
   }
 });
 
-// PATCH /api/admin/orders/:id/status
-router.patch('/orders/:id/status', requireRole('admin', 'gallery_manager'), async (req, res) => {
+// POST /api/admin/orders/:id/verify-bank-transfer
+// Only an active admin may attest to a matching, independently checked bank record.
+router.post('/orders/:id/verify-bank-transfer', requireRole('admin'), async (req, res) => {
   try {
-    const { status } = req.body;
-    const validStatuses = ['pending', 'paid', 'shipped', 'delivered', 'cancelled'];
-    if (!validStatuses.includes(status)) return sendError(res, 'Geçersiz durum', 400);
+    const result = await verifyBankTransfer(req.params.id, req.user.id, req.body);
+    return sendSuccess(res, result, 'Banka kaydı yönetici tarafından manuel doğrulandı');
+  } catch (err) {
+    if (err.statusCode) return sendError(res, err.message, err.statusCode);
+    console.error('Banka ödeme doğrulama hatası:', err);
+    return sendError(res, 'Ödeme doğrulama sırasında sunucu hatası', 500);
+  }
+});
 
+// GET /api/admin/orders/:id/audit
+router.get('/orders/:id/audit', requireRole('admin', 'gallery_manager'), async (req, res) => {
+  try {
     const order = await Order.findByPk(req.params.id);
     if (!order) return sendError(res, 'Sipariş bulunamadı', 404);
-
-    order.status = status;
-    await order.save();
-    sendSuccess(res, { order_id: order.order_id, status: order.status }, 'Sipariş durumu güncellendi');
+    const history = await OrderStatusAudit.findAll({
+      where: { order_id: order.order_id },
+      include: [{ model: User, as: 'actor', attributes: ['user_id', 'username'] }],
+      order: [['created_at', 'ASC'], ['audit_id', 'ASC']]
+    });
+    return sendSuccess(res, history);
   } catch (err) {
-    sendError(res, 'Durum güncelleme hatası: ' + err.message, 500);
+    console.error('Sipariş denetim geçmişi hatası:', err);
+    return sendError(res, 'Denetim geçmişi alınamadı', 500);
+  }
+});
+
+// PATCH /api/admin/orders/:id/status
+// Payment confirmation and cancellation cannot be forged using this endpoint.
+router.patch('/orders/:id/status', requireRole('admin', 'gallery_manager'), async (req, res) => {
+  try {
+    const result = await advanceOrderStatus(req.params.id, req.user.id, req.body.status);
+    return sendSuccess(res, result, 'Sevkiyat durumu güncellendi ve denetim kaydı oluşturuldu');
+  } catch (err) {
+    if (err.statusCode) return sendError(res, err.message, err.statusCode);
+    console.error('Sipariş durum güncelleme hatası:', err);
+    return sendError(res, 'Durum güncelleme sırasında sunucu hatası', 500);
   }
 });
 

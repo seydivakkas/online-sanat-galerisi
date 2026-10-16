@@ -43,6 +43,15 @@ const router = express.Router();
 // │ COMMIT;  -- Herhangi bir adım başarısız olursa: ROLLBACK;             │
 // └───────────────────────────────────────────────────────────────────────┘
 router.post('/', requireAuth, orderRules, async (req, res) => {
+  // Fail closed: card/PayPal has no processor, and event-ticket orders
+  // currently create confirmed reservations before payment (P1 blocker).
+  if (req.body.payment_method !== 'bank_transfer') {
+    return sendError(res, 'Kart ve PayPal ödeme altyapısı henüz bağlı değil', 409);
+  }
+  if (req.body.items.some(item => item.item_type === 'event')) {
+    return sendError(res, 'Etkinlik biletlerinin sipariş/ödeme bağlantısı P1 tamamlanana kadar kapalı', 409);
+  }
+
   const t = await sequelize.transaction();
   try {
     const { items, payment_method, coupon_code } = req.body;
@@ -164,27 +173,10 @@ router.post('/', requireAuth, orderRules, async (req, res) => {
   }
 });
 
-// POST /api/orders/:id/confirm — Ödeme onayla
-// ┌─ SQL Karşılığı ───────────────────────────────────────────────────────┐
-// │ UPDATE orders SET status = 'paid'                                      │
-// │ WHERE order_id = ? AND user_id = ? AND status = 'pending'             │
-// └───────────────────────────────────────────────────────────────────────┘
-router.post('/:id/confirm', requireAuth, async (req, res) => {
-  try {
-    const order = await Order.findOne({
-      where: { order_id: req.params.id, user_id: req.user.id }
-    });
-    if (!order) return sendError(res, 'Sipariş bulunamadı', 404);
-    if (order.status !== 'pending') {
-      return sendError(res, 'Bu sipariş onaylanamaz', 400);
-    }
-
-    order.status = 'paid';
-    await order.save();
-    sendSuccess(res, { order }, 'Ödeme onaylandı');
-  } catch (err) {
-    sendError(res, 'Ödeme onaylanırken hata', 500);
-  }
+// Legacy route intentionally disabled. A user-provided request or payment
+// receipt is never authoritative evidence of settlement.
+router.post('/:id/confirm', requireAuth, (req, res) => {
+  return sendError(res, 'Müşteri ödeme onayı kaldırıldı; banka havalelerini yalnızca yetkili yönetici banka kayıtlarından doğrulayabilir', 410);
 });
 
 // GET /api/orders — Kullanıcının siparişleri
