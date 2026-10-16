@@ -94,7 +94,7 @@ test('older schema without audit and reservation link is not misreported as clea
     'not_evaluable');
 });
 
-test('CLI refuses a live/undocumented path without explicit offline-copy acknowledgement', () => {
+test('CLI requires explicit operator acknowledgement of an offline copy', () => {
   const toolPath = path.join(__dirname, '..', 'acceptance', 'readOnlyInventory.js');
   const file = path.join(root, 'empty.sqlite');
   const noAcknowledgement = spawnSync(process.execPath,
