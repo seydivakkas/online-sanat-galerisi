@@ -46,6 +46,8 @@ jobs:
           cd backend
           npm run test:migrations
           if ($LASTEXITCODE -ne 0) { throw "Migration tests failed" }
+          npm run test:acceptance
+          if ($LASTEXITCODE -ne 0) { throw "Offline acceptance tests failed" }
       - name: Start Windows gallery and test same-origin site
         shell: pwsh
         run: |
