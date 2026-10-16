@@ -11,7 +11,9 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+  setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff')
+}));
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
@@ -57,6 +59,8 @@ async function start() {
   }
 }
 
-start();
+if (require.main === module) {
+  start();
+}
 
 module.exports = app;
