@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { reservationAPI } from '../services/api';
+import { Link } from 'react-router-dom';
 
 export default function Reservations() {
   const [reservations, setReservations] = useState([]);
@@ -57,7 +58,9 @@ export default function Reservations() {
                   <td>{r.participant_count} kişi</td>
                   <td>{statusBadge(r.status)}</td>
                   <td>
-                    {r.status !== 'cancelled' && (
+                    {r.order_id ? (
+                      <Link className="btn btn-sm btn-outline-primary" to="/orders">Sipariş / Ödeme İşlemleri</Link>
+                    ) : r.status !== 'cancelled' && (
                       <button className="btn btn-sm btn-outline-danger" onClick={() => cancelReservation(r.reservation_id)}>
                         İptal Et
                       </button>

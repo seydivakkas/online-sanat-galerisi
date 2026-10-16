@@ -17,6 +17,9 @@ const Reservation = sequelize.define('Reservation', {
     allowNull: false,
     references: { model: 'events', key: 'event_id' }
   },
+  // Null for direct free bookings and legacy records; set for paid order holds.
+  order_id: { type: DataTypes.INTEGER, allowNull: true,
+    references: { model: 'orders', key: 'order_id' } },
   participant_count: {
     type: DataTypes.INTEGER,
     allowNull: false,

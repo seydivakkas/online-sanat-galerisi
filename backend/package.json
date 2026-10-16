@@ -8,7 +8,8 @@
     "dev": "node --watch server.js",
     "seed": "node seed.js",
     "test:security": "node --test tests/p0-1.test.js",
-    "test:payments": "node --test tests/p0-2.test.js"
+    "test:payments": "node --test tests/p0-2.test.js",
+    "test:integrity": "node --test tests/p1-integrity.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

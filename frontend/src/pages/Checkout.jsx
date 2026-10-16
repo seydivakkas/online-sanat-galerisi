@@ -42,10 +42,14 @@ export default function Checkout() {
       const items = cart.map(i => ({
         item_type: i.item_type,
         item_id: i.item_id,
-        quantity: i.quantity
+        quantity: i.quantity,
+        ...(i.item_type === 'event' ? {
+          reservation_date: i.reservation_date,
+          reservation_time: i.reservation_time
+        } : {})
       }));
       await orderAPI.create({ items, payment_method: paymentMethod, coupon_code: couponCode || undefined });
-      toast.success('Sipariş talebiniz alındı. Ödeme henüz doğrulanmadı.');
+      toast.success('Sipariş talebiniz ve süreli stok/kontenjan ayırmanız oluşturuldu. Ödeme henüz doğrulanmadı.');
       clearCart();
       setTimeout(() => navigate('/orders'), 2000);
     } catch (err) {
@@ -122,12 +126,17 @@ export default function Checkout() {
                   Kart ve PayPal ödeme altyapıları henüz kullanılabilir değil.
                 </div>
                 <div className="mb-3 fw-semibold">Havale / EFT — ödeme bekliyor</div>
-                {cart.some(item => item.item_type === 'event') && (
+                {cart.some(item => item.item_type === 'event' && (!item.reservation_date || !item.reservation_time)) && (
                   <div className="alert alert-warning small" role="alert">
-                    Etkinlik biletlerinin ödeme–rezervasyon bağlantısı henüz tamamlanmadı.
-                    Bilet içeren sepetler için sipariş oluşturma geçici olarak kapalıdır.
+                    Sepetinizde tarih/saat bilgisi olmayan eski bir bilet var.
+                    Bu bileti silip etkinlik sayfasından yeniden ekleyin.
                   </div>
                 )}
+                <p className="small text-muted">
+                  Sipariş oluşturulduktan sonra stok ve bilet kontenjanı en fazla 24 saat
+                  (sunucunun ayırma süresi ayarına göre) tutulur.
+                  Banka mutabakatı tamamlanmazsa sipariş iptal edilir.
+                </p>
 
                 <h6 className="fw-semibold">İndirim Kuponu</h6>
                 <div className="input-group mb-2">
@@ -155,7 +164,7 @@ export default function Checkout() {
                   <span>Genel Toplam:</span>
                   <span>{finalTotal.toLocaleString('tr-TR')} ₺</span>
                 </div>
-                <button className="btn btn-light w-100 fw-bold py-2" onClick={handleCheckout} disabled={loading || cart.some(item => item.item_type === 'event')}>
+                <button className="btn btn-light w-100 fw-bold py-2" onClick={handleCheckout} disabled={loading || cart.some(item => item.item_type === 'event' && (!item.reservation_date || !item.reservation_time))}>
                   {loading ? 'İşleniyor...' : 'Sipariş Talebi Oluştur'}
                 </button>
               </div>

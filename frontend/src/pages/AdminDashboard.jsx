@@ -372,6 +372,7 @@ function OrdersTab() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [proofOrder, setProofOrder] = useState(null);
+  const [proofMode, setProofMode] = useState('payment');
   const [checked, setChecked] = useState(false);
   const [proof, setProof] = useState({
     payment_reference: '', verified_amount: '', evidence_date: '',
@@ -399,7 +400,8 @@ function OrdersTab() {
     } finally { setBusy(false); }
   };
 
-  const startVerification = (o) => {
+  const startVerification = (o, mode = 'payment') => {
+    setProofMode(mode);
     setProofOrder(o.order_id);
     setChecked(false);
     setProof({
@@ -415,8 +417,12 @@ function OrdersTab() {
     }
     setBusy(true);
     try {
-      await adminAPI.verifyBankTransfer(proofOrder, proof);
-      toast.success('Manuel banka kontrolü denetim kaydıyla işlendi');
+      if (proofMode === 'refund') {
+        await adminAPI.verifyBankRefund(proofOrder, proof);
+      } else {
+        await adminAPI.verifyBankTransfer(proofOrder, proof);
+      }
+      toast.success(proofMode === 'refund' ? 'Gerçek banka iadesi ve stok geri alma kaydedildi' : 'Manuel banka kontrolü denetim kaydıyla işlendi');
       setProofOrder(null);
       load();
     } catch (err) {
@@ -442,7 +448,7 @@ function OrdersTab() {
       <div className="alert alert-info">
         Banka ödemeleri yalnızca yönetici tarafından gerçek banka kaydıyla karşılaştırılarak manuel onaylanabilir.
         İşlem referansı ve denetim notu saklanır. Kart/PayPal doğrulaması henüz desteklenmiyor.
-        İptal/iade ve ücretli etkinlik rezervasyonu P1 mutabakatı tamamlanana kadar kapalıdır.
+        Bekleyen siparişler süre dolunca stok/kontenjanı serbest bırakır. Gerçek banka iadesi yalnızca admin tarafından, çıkış işlemi kontrol edilerek ve sevkiyattan önce yapılabilir.
       </div>
       <div className="table-responsive">
         <table className="table table-hover table-bordered align-middle">
@@ -458,11 +464,15 @@ function OrdersTab() {
                 <td>{new Date(o.created_at).toLocaleDateString('tr-TR')}</td>
                 <td>
                   <div className="d-flex flex-wrap gap-1">
-                    {isAdmin && o.status === 'pending' && o.payment_method === 'bank_transfer' && !o.items?.some(item => item.item_type === 'event') && (
+                    {isAdmin && o.status === 'pending' && o.payment_method === 'bank_transfer' && (!o.expires_at || new Date(o.expires_at) > new Date()) && (
                       <button className="btn btn-sm btn-outline-success" disabled={busy} onClick={() => startVerification(o)}>Banka Kaydını Doğrula</button>
                     )}
-                    {o.status === 'paid' && (
+                    {o.status === 'paid' && !o.items?.some(item => item.item_type === 'event') && (
                       <button className="btn btn-sm btn-outline-primary" disabled={busy} onClick={() => updateStatus(o.order_id, 'shipped')}>Kargoya Ver</button>
+                    )}
+                    {isAdmin && o.status === 'paid' && o.payment_method === 'bank_transfer' && (
+                      <button className="btn btn-sm btn-outline-danger" disabled={busy}
+                        onClick={() => startVerification(o, 'refund')}>Banka İadesini Kaydet</button>
                     )}
                     {o.status === 'shipped' && (
                       <button className="btn btn-sm btn-outline-primary" disabled={busy} onClick={() => updateStatus(o.order_id, 'delivered')}>Teslim Et</button>
@@ -477,8 +487,8 @@ function OrdersTab() {
       </div>
       {proofOrder !== null && (
         <form onSubmit={verifyTransfer} className="card p-3 mb-4" aria-label="Banka havalesi manuel doğrulama">
-          <h5>#{proofOrder} — Banka kaydı mutabakatı (yalnızca admin)</h5>
-          <p className="text-muted small">Dekont fotoğrafı tek başına ödeme kanıtı değildir. İşlemi bankanızın ekstre veya resmî panel kayıtlarında doğrulayın.</p>
+          <h5>#{proofOrder} — {proofMode === 'refund' ? 'Banka İadesi Mutabakatı' : 'Banka Tahsilatı Mutabakatı'} (yalnızca admin)</h5>
+          <p className="text-muted small">{proofMode === 'refund' ? 'Müşteriye yapılmış gerçek para çıkışını banka hesabının ekstresinden doğrulayın. İade talebi veya dekont görseli tek başına yeterli değildir.' : 'Dekont fotoğrafı tek başına ödeme kanıtı değildir. İşlemi bankanızın ekstre veya resmî panel kayıtlarında doğrulayın.'}</p>
           <div className="row g-2">
             <div className="col-md-6">
               <label className="form-label">Banka işlem referansı</label>
@@ -512,7 +522,7 @@ function OrdersTab() {
           <label className="form-check mt-3 mb-3">
             <input className="form-check-input" type="checkbox" checked={checked}
               onChange={e => setChecked(e.target.checked)} required />
-            <span className="form-check-label">Banka kaydında referansı, tarihi, tutarı ve alıcı hesabı bağımsız olarak karşılaştırdım.</span>
+            <span className="form-check-label">{proofMode === 'refund' ? 'Gerçek banka çıkışını, alıcıyı, tutarı, tarihi ve özgün iade referansını doğruladım.' : 'Banka kaydında referansı, tarihi, tutarı ve alıcı hesabı bağımsız olarak karşılaştırdım.'}</span>
           </label>
           <div className="d-flex gap-2">
             <button className="btn btn-success" type="submit" disabled={busy || !checked}>Manuel Kontrolü Kaydet</button>

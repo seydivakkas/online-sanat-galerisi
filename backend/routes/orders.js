@@ -1,175 +1,145 @@
 const express = require('express');
 const { Op } = require('sequelize');
+const { reserveArtwork, reserveEvent, validEventSlot } = require('../services/inventory');
+const { newExpiration, expirePendingOrders, closeOrder } = require('../services/orderHolds');
+const { toCents } = require('../services/orderLifecycle');
+class OrderError extends Error {
+  constructor(message, statusCode = 409) { super(message); this.statusCode = statusCode; }
+}
 const { Order, OrderItem, Artwork, Event, Reservation, Coupon } = require('../models');
 const { requireAuth } = require('../middleware/auth');
 const { orderRules } = require('../middleware/validate');
 const sequelize = require('../config/database');
+const { withInventoryTransaction } = require('../services/transactionGate');
 const { sendSuccess, sendError } = require('../utils/response');
 
 const router = express.Router();
 
-// POST /api/orders — Sipariş oluştur
-// ┌─ SQL Karşılığı (TRANSACTION — Atomik İşlem) ──────────────────────────────┐
-// │ BEGIN TRANSACTION;                                                     │
-// │                                                                       │
-// │ -- 1. Stok kontrolü                                                   │
-// │ SELECT * FROM artworks WHERE artwork_id = ? AND stock_quantity >= ?    │
-// │                                                                       │
-// │ -- 2. Kupon kontrolü                                                  │
-// │ SELECT * FROM coupons WHERE code = ?                                  │
-// │   AND valid_from <= NOW() AND valid_until >= NOW()                     │
-// │                                                                       │
-// │ -- 3. Sipariş oluştur                                                 │
-// │ INSERT INTO orders (user_id, total_amount, status, payment_method,    │
-// │   coupon_id, discount_amount) VALUES (?, ?, 'pending', ?, ?, ?)       │
-// │                                                                       │
-// │ -- 4. Sipariş kalemleri (POLİMORFİK INSERT)                           │
-// │ INSERT INTO order_items (order_id, item_type, item_id, quantity,      │
-// │   unit_price) VALUES (?, 'artwork', ?, ?, ?)                          │
-// │ INSERT INTO order_items (order_id, item_type, item_id, quantity,      │
-// │   unit_price) VALUES (?, 'event', ?, ?, ?)                            │
-// │                                                                       │
-// │ -- 5. Stok düşür                                                      │
-// │ UPDATE artworks SET stock_quantity = stock_quantity - ?                │
-// │   WHERE artwork_id = ?                                                │
-// │                                                                       │
-// │ -- 6. Etkinlik kontenjanı güncelle                                     │
-// │ UPDATE events SET current_registrations = current_registrations + ?   │
-// │   WHERE event_id = ?                                                  │
-// │                                                                       │
-// │ -- 7. Kupon kullanım sayısı artır                                      │
-// │ UPDATE coupons SET used_count = used_count + 1 WHERE coupon_id = ?    │
-// │                                                                       │
-// │ COMMIT;  -- Herhangi bir adım başarısız olursa: ROLLBACK;             │
-// └───────────────────────────────────────────────────────────────────────┘
+// New orders own a bounded inventory hold until manual bank verification.
 router.post('/', requireAuth, orderRules, async (req, res) => {
-  // Fail closed: card/PayPal has no processor, and event-ticket orders
-  // currently create confirmed reservations before payment (P1 blocker).
   if (req.body.payment_method !== 'bank_transfer') {
     return sendError(res, 'Kart ve PayPal ödeme altyapısı henüz bağlı değil', 409);
   }
-  if (req.body.items.some(item => item.item_type === 'event')) {
-    return sendError(res, 'Etkinlik biletlerinin sipariş/ödeme bağlantısı P1 tamamlanana kadar kapalı', 409);
+  const { items, payment_method, coupon_code } = req.body;
+  const distinct = new Set(items.map(i => i.item_type + ':' + i.item_id));
+  if (distinct.size !== items.length) {
+    return sendError(res, 'Aynı ürün veya etkinlik sepette yalnızca bir kez bulunmalı', 400);
   }
-
-  const t = await sequelize.transaction();
   try {
-    const { items, payment_method, coupon_code } = req.body;
-
-    // Stok kontrolü + toplam hesaplama
-    let totalAmount = 0;
-    const orderItems = [];
-
-    for (const item of items) {
-      if (item.item_type === 'artwork') {
-        const artwork = await Artwork.findByPk(item.item_id, { transaction: t });
-        if (!artwork) {
-          await t.rollback();
-          return sendError(res, `Eser bulunamadı: ID ${item.item_id}`, 404);
+    // Clear stale holds before attempting new conditional capacity updates.
+    await expirePendingOrders();
+    const orderId = await withInventoryTransaction(async transaction => {
+      let totalCents = 0;
+      const orderItems = [];
+      for (const item of items) {
+        if (item.item_type === 'artwork') {
+          const artwork = await Artwork.findByPk(item.item_id, { transaction });
+          if (!artwork) throw new OrderError('Eser bulunamadı', 404);
+          const priceCents = toCents(artwork.price);
+          if (priceCents === null) throw new OrderError('Eser fiyatı geçersiz', 409);
+          await reserveArtwork(artwork.artwork_id, item.quantity, transaction);
+          orderItems.push({
+            item_type: 'artwork', item_id: artwork.artwork_id,
+            quantity: Number(item.quantity), unit_price: artwork.price
+          });
+          totalCents += priceCents * Number(item.quantity);
+        } else if (item.item_type === 'event') {
+          const event = await Event.findByPk(item.item_id, { transaction });
+          if (!event) throw new OrderError('Etkinlik bulunamadı', 404);
+          validEventSlot(event, item.reservation_date, item.reservation_time);
+          const priceCents = toCents(event.price);
+          if (priceCents === null) throw new OrderError('Etkinlik fiyatı geçersiz', 409);
+          if (priceCents === 0) {
+            throw new OrderError('Ücretsiz etkinlikler doğrudan rezervasyon ekranından kaydedilir', 409);
+          }
+          const duplicate = await Reservation.findOne({
+            where: { user_id: req.user.id, event_id: event.event_id,
+              status: { [Op.ne]: 'cancelled' } }, transaction
+          });
+          if (duplicate) throw new OrderError('Bu etkinlikte aktif rezervasyonunuz var', 409);
+          await reserveEvent(event, item.quantity, transaction);
+          orderItems.push({
+            item_type: 'event', item_id: event.event_id,
+            quantity: Number(item.quantity), unit_price: event.price,
+            reservation_date: event.event_date, reservation_time: event.event_time
+          });
+          totalCents += priceCents * Number(item.quantity);
         }
-        if (!artwork.is_available || artwork.stock_quantity < item.quantity) {
-          await t.rollback();
-          return sendError(res, `Yetersiz stok: "${artwork.title}" (Mevcut: ${artwork.stock_quantity})`, 409);
+        if (!Number.isSafeInteger(totalCents)) throw new OrderError('Toplam tutar hesaplanamadı', 400);
+      }
+
+      let coupon = null;
+      let discountCents = 0;
+      if (coupon_code) {
+        const today = new Date().toISOString().slice(0, 10);
+        coupon = await Coupon.findOne({
+          where: { code: coupon_code,
+            valid_from: { [Op.lte]: today }, valid_until: { [Op.gte]: today } },
+          transaction
+        });
+        if (!coupon || (coupon.is_user_specific && Number(coupon.target_user_id) !== req.user.id)) {
+          throw new OrderError('Kupon geçersiz veya kullanıcıya ait değil', 400);
         }
-        orderItems.push({ item_type: 'artwork', item_id: item.item_id, quantity: item.quantity, unit_price: parseFloat(artwork.price) });
-        totalAmount += parseFloat(artwork.price) * item.quantity;
-      } else if (item.item_type === 'event') {
-        const event = await Event.findByPk(item.item_id, { transaction: t });
-        if (!event) {
-          await t.rollback();
-          return sendError(res, `Etkinlik bulunamadı: ID ${item.item_id}`, 404);
+        if (coupon.discount_percent) {
+          discountCents = Math.round(totalCents * Number(coupon.discount_percent) / 100);
+        } else if (coupon.discount_amount) {
+          discountCents = toCents(coupon.discount_amount);
+          if (discountCents === null) throw new OrderError('Kupon tutarı geçersiz', 400);
         }
-        if (!event.is_active || (event.capacity - event.current_registrations) < item.quantity) {
-          await t.rollback();
-          return sendError(res, `Yetersiz kontenjan: "${event.title}"`, 409);
+        discountCents = Math.min(totalCents, Math.max(0, discountCents));
+        if (coupon.max_uses) {
+          const [updated] = await Coupon.update({
+            used_count: sequelize.literal('used_count + 1')
+          }, {
+            where: { coupon_id: coupon.coupon_id,
+              used_count: { [Op.lt]: coupon.max_uses } }, transaction
+          });
+          if (updated !== 1) throw new OrderError('Kupon kullanım limiti dolmuş', 409);
+        } else {
+          await Coupon.increment('used_count', {
+            where: { coupon_id: coupon.coupon_id }, transaction
+          });
         }
-        orderItems.push({ item_type: 'event', item_id: item.item_id, quantity: item.quantity, unit_price: parseFloat(event.price) });
-        totalAmount += parseFloat(event.price) * item.quantity;
-      }
-    }
-
-    // Kupon kontrolü
-    let coupon = null;
-    let discountAmount = 0;
-    if (coupon_code) {
-      coupon = await Coupon.findOne({
-        where: {
-          code: coupon_code,
-          valid_from: { [Op.lte]: new Date() },
-          valid_until: { [Op.gte]: new Date() }
-        },
-        transaction: t
-      });
-
-      if (!coupon) {
-        await t.rollback();
-        return sendError(res, 'Geçersiz veya süresi dolmuş kupon', 400);
-      }
-      if (coupon.max_uses && coupon.used_count >= coupon.max_uses) {
-        await t.rollback();
-        return sendError(res, 'Kupon kullanım limiti dolmuş', 400);
-      }
-      if (coupon.is_user_specific && coupon.target_user_id !== req.user.id) {
-        await t.rollback();
-        return sendError(res, 'Bu kupon sizin için geçerli değil', 403);
       }
 
-      if (coupon.discount_percent) {
-        discountAmount = totalAmount * (parseFloat(coupon.discount_percent) / 100);
-      } else if (coupon.discount_amount) {
-        discountAmount = parseFloat(coupon.discount_amount);
+      if (totalCents - discountCents <= 0) {
+        throw new OrderError('Ücretsiz siparişler banka ödeme talebiyle açılamaz', 409);
       }
-      discountAmount = Math.min(discountAmount, totalAmount);
-    }
-
-    // Sipariş oluştur
-    const order = await Order.create({
-      user_id: req.user.id,
-      total_amount: totalAmount - discountAmount,
-      status: 'pending',
-      payment_method,
-      coupon_id: coupon?.coupon_id || null,
-      discount_amount: discountAmount
-    }, { transaction: t });
-
-    // Sipariş kalemleri
-    for (const item of orderItems) {
-      await OrderItem.create({ ...item, order_id: order.order_id }, { transaction: t });
-    }
-
-    // Stok ve Kontenjan düşür
-    for (const item of items) {
-      if (item.item_type === 'artwork') {
-        await Artwork.decrement('stock_quantity', { by: item.quantity, where: { artwork_id: item.item_id }, transaction: t });
-      } else if (item.item_type === 'event') {
-        await Event.increment('current_registrations', { by: item.quantity, where: { event_id: item.item_id }, transaction: t });
-        // İş mantığı zenginliği: Sepette bilet varsa Reservation oluştur
-        await Reservation.create({
-          user_id: req.user.id,
-          event_id: item.item_id,
-          participant_count: item.quantity,
-          reservation_date: new Date().toISOString().split('T')[0],
-          reservation_time: '00:00', // Varsa eventin saatini bulup atayabiliriz ama şimdilik placeholder
-          status: 'confirmed'
-        }, { transaction: t });
+      const order = await Order.create({
+        user_id: req.user.id,
+        total_amount: ((totalCents - discountCents) / 100).toFixed(2),
+        status: 'pending', payment_method,
+        coupon_id: coupon?.coupon_id || null,
+        discount_amount: (discountCents / 100).toFixed(2),
+        expires_at: newExpiration()
+      }, { transaction });
+      for (const item of orderItems) {
+        await OrderItem.create({
+          order_id: order.order_id, item_type: item.item_type, item_id: item.item_id,
+          quantity: item.quantity, unit_price: item.unit_price
+        }, { transaction });
+        if (item.item_type === 'event') {
+          await Reservation.create({
+            user_id: req.user.id, order_id: order.order_id,
+            event_id: item.item_id, participant_count: item.quantity,
+            reservation_date: item.reservation_date,
+            reservation_time: item.reservation_time,
+            status: 'pending'
+          }, { transaction });
+        }
       }
-    }
-
-    // Kupon kullanım sayısı
-    if (coupon) {
-      await coupon.increment('used_count', { transaction: t });
-    }
-
-    await t.commit();
-
-    const fullOrder = await Order.findByPk(order.order_id, {
-      include: [{ model: OrderItem, as: 'items' }]
+      return order.order_id;
     });
-
-    sendSuccess(res, { order: fullOrder }, 'Sipariş oluşturuldu', 201);
+    const fullOrder = await Order.findByPk(orderId, {
+      include: [{ model: OrderItem, as: 'items' },
+        { model: Reservation, as: 'reservations' }]
+    });
+    return sendSuccess(res, { order: fullOrder },
+      'Sipariş oluşturuldu; ödeme doğrulanana kadar stok ve kontenjan süreli ayrıldı', 201);
   } catch (err) {
-    await t.rollback();
-    sendError(res, 'Sipariş oluşturulurken hata: ' + err.message, 500);
+    if (err.statusCode) return sendError(res, err.message, err.statusCode);
+    console.error('Sipariş oluşturulurken hata:', err);
+    return sendError(res, 'Sipariş oluşturulurken hata', 500);
   }
 });
 
@@ -177,6 +147,20 @@ router.post('/', requireAuth, orderRules, async (req, res) => {
 // receipt is never authoritative evidence of settlement.
 router.post('/:id/confirm', requireAuth, (req, res) => {
   return sendError(res, 'Müşteri ödeme onayı kaldırıldı; banka havalelerini yalnızca yetkili yönetici banka kayıtlarından doğrulayabilir', 410);
+});
+
+// POST /api/orders/:id/cancel — pending order release; paid orders require audited refund.
+router.post('/:id/cancel', requireAuth, async (req, res) => {
+  try {
+    const result = await closeOrder(req.params.id, {
+      userId: req.user.id, actorId: req.user.id, action: 'pending_cancelled'
+    });
+    return sendSuccess(res, result, 'Sipariş iptal edildi; ayrılan stok geri açıldı');
+  } catch (err) {
+    if (err.statusCode) return sendError(res, err.message, err.statusCode);
+    console.error('Sipariş iptali hatası:', err);
+    return sendError(res, 'Sipariş iptal edilemedi', 500);
+  }
 });
 
 // GET /api/orders — Kullanıcının siparişleri
@@ -195,6 +179,7 @@ router.post('/:id/confirm', requireAuth, (req, res) => {
 // └───────────────────────────────────────────────────────────────────────┘
 router.get('/', requireAuth, async (req, res) => {
   try {
+    await expirePendingOrders();
     const orders = await Order.findAll({
       where: { user_id: req.user.id },
       include: [{
@@ -215,6 +200,7 @@ router.get('/', requireAuth, async (req, res) => {
 // GET /api/orders/:id — Sipariş detayı
 router.get('/:id', requireAuth, async (req, res) => {
   try {
+    await expirePendingOrders();
     const order = await Order.findOne({
       where: { order_id: req.params.id, user_id: req.user.id },
       include: [

@@ -26,6 +26,8 @@ const Order = sequelize.define('Order', {
     type: DataTypes.INTEGER,
     references: { model: 'coupons', key: 'coupon_id' }
   },
+  // Expiration applies only to new P1 pending orders; legacy null rows are preserved.
+  expires_at: { type: DataTypes.DATE, allowNull: true },
   discount_amount: {
     type: DataTypes.DECIMAL(10, 2),
     defaultValue: 0

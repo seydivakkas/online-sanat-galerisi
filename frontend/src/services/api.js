@@ -97,7 +97,7 @@ export const orderAPI = {
   getAll: () => api.get('/orders'),
   getById: (id) => api.get(`/orders/${id}`),
   create: (data) => api.post('/orders', data),
-  confirm: (id) => api.post(`/orders/${id}/confirm`),
+  cancel: (id) => api.post(`/orders/${id}/cancel`),
 };
 
 // Reviews
@@ -155,6 +155,7 @@ export const adminAPI = {
   getOrders: () => api.get('/admin/orders'),
   updateOrderStatus: (id, status) => api.patch(`/admin/orders/${id}/status`, { status }),
   verifyBankTransfer: (id, data) => api.post(`/admin/orders/${id}/verify-bank-transfer`, data),
+  verifyBankRefund: (id, data) => api.post(`/admin/orders/${id}/verify-bank-refund`, data),
   getOrderAudit: (id) => api.get(`/admin/orders/${id}/audit`),
   // Yorumlar
   getReviews: () => api.get('/admin/reviews'),

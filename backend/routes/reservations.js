@@ -1,6 +1,9 @@
 const express = require('express');
 const { Op } = require('sequelize');
-const { Reservation, Event, User } = require('../models');
+const { Reservation, Event } = require('../models');
+const sequelize = require('../config/database');
+const { withInventoryTransaction } = require('../services/transactionGate');
+const { count, validEventSlot, reserveEvent, releaseEvent } = require('../services/inventory');
 const { requireAuth } = require('../middleware/auth');
 const { reservationRules } = require('../middleware/validate');
 const { sendSuccess, sendError } = require('../utils/response');
@@ -26,47 +29,35 @@ const router = express.Router();
 // │ UPDATE events SET current_registrations = current_registrations + ?   │
 // │   WHERE event_id = ?                                                  │
 // └───────────────────────────────────────────────────────────────────────┘
+// Direct booking is only for free events; paid events must flow through an
+// order hold and bank verification, otherwise payment can be bypassed.
 router.post('/', requireAuth, reservationRules, async (req, res) => {
+  const { event_id, participant_count, reservation_date, reservation_time } = req.body;
   try {
-    const { event_id, participant_count, reservation_date, reservation_time } = req.body;
-
-    const event = await Event.findByPk(event_id);
-    if (!event) return sendError(res, 'Etkinlik bulunamadı', 404);
-    if (!event.is_active) return sendError(res, 'Bu etkinlik artık aktif değil', 400);
-
-    // Kapasite kontrolü
-    const remaining = event.capacity - event.current_registrations;
-    if (remaining < participant_count) {
-      return sendError(res, `Yetersiz kontenjan. Kalan: ${remaining}, İstenen: ${participant_count}`, 409);
-    }
-
-    // Çakışma kontrolü
-    const existing = await Reservation.findOne({
-      where: {
-        user_id: req.user.id,
-        event_id,
-        status: { [Op.ne]: 'cancelled' }
+    const booking = await withInventoryTransaction(async transaction => {
+      const event = await Event.findByPk(event_id, { transaction });
+      if (!event) throw Object.assign(new Error('Etkinlik bulunamadı'), { statusCode: 404 });
+      if (Number(event.price || 0) !== 0) {
+        throw Object.assign(new Error('Ücretli etkinlik için sipariş üzerinden ödeme talebi oluşturulmalı'), { statusCode: 409 });
       }
+      validEventSlot(event, reservation_date, reservation_time);
+      await reserveEvent(event, participant_count, transaction);
+      // Event capacity UPDATE serializes concurrent writers before this check.
+      const existing = await Reservation.findOne({ where: {
+        user_id: req.user.id, event_id, status: { [Op.ne]: 'cancelled' }
+      }, transaction });
+      if (existing) throw Object.assign(new Error('Etkinlikte aktif rezervasyonunuz zaten var'), { statusCode: 409 });
+      return Reservation.create({
+        user_id: req.user.id, event_id, participant_count: Number(participant_count),
+        reservation_date: event.event_date, reservation_time: event.event_time,
+        status: 'confirmed'
+      }, { transaction });
     });
-    if (existing) {
-      return sendError(res, 'Bu etkinliğe zaten aktif bir rezervasyonunuz var', 409);
-    }
-
-    const reservation = await Reservation.create({
-      user_id: req.user.id,
-      event_id,
-      participant_count,
-      reservation_date,
-      reservation_time,
-      status: 'pending'
-    });
-
-    // current_registrations güncelle
-    await event.increment('current_registrations', { by: participant_count });
-
-    sendSuccess(res, { reservation }, 'Rezervasyon oluşturuldu', 201);
+    return sendSuccess(res, { reservation: booking }, 'Ücretsiz etkinlik kaydı onaylandı', 201);
   } catch (err) {
-    sendError(res, 'Rezervasyon oluşturulurken hata: ' + err.message, 500);
+    if (err.statusCode) return sendError(res, err.message, err.statusCode);
+    console.error('Rezervasyon oluşturma hatası:', err);
+    return sendError(res, 'Rezervasyon oluşturulamadı', 500);
   }
 });
 
@@ -108,34 +99,36 @@ router.get('/:id', requireAuth, async (req, res) => {
 // PUT /api/reservations/:id — Güncelle
 router.put('/:id', requireAuth, async (req, res) => {
   try {
-    const reservation = await Reservation.findOne({
-      where: { reservation_id: req.params.id, user_id: req.user.id }
+    const result = await withInventoryTransaction(async transaction => {
+      const reservation = await Reservation.findOne({
+        where: { reservation_id: req.params.id, user_id: req.user.id }, transaction
+      });
+      if (!reservation) throw Object.assign(new Error('Rezervasyon bulunamadı'), { statusCode: 404 });
+      if (reservation.order_id) throw Object.assign(new Error('Siparişe bağlı rezervasyon yalnızca sipariş üzerinden yönetilebilir'), { statusCode: 409 });
+      if (reservation.status !== 'confirmed') throw Object.assign(new Error('Aktif olmayan rezervasyon güncellenemez'), { statusCode: 409 });
+      const event = await Event.findByPk(reservation.event_id, { transaction });
+      if (!event) throw Object.assign(new Error('Etkinlik bulunamadı'), { statusCode: 404 });
+      validEventSlot(event,
+        req.body.reservation_date || reservation.reservation_date,
+        req.body.reservation_time || reservation.reservation_time);
+      const nextCount = req.body.participant_count === undefined
+        ? reservation.participant_count : count(req.body.participant_count);
+      const diff = nextCount - reservation.participant_count;
+      if (diff > 0) await reserveEvent(event, diff, transaction);
+      else if (diff < 0) await releaseEvent(event.event_id, -diff, transaction);
+      const [changed] = await Reservation.update({ participant_count: nextCount }, {
+        where: { reservation_id: reservation.reservation_id,
+          status: 'confirmed', participant_count: reservation.participant_count,
+          order_id: null }, transaction
+      });
+      if (changed !== 1) throw Object.assign(new Error('Rezervasyon eşzamanlı değiştirildi'), { statusCode: 409 });
+      return Reservation.findByPk(reservation.reservation_id, { transaction });
     });
-    if (!reservation) return sendError(res, 'Rezervasyon bulunamadı', 404);
-    if (reservation.status === 'cancelled') {
-      return sendError(res, 'İptal edilmiş rezervasyon güncellenemez', 400);
-    }
-
-    const { participant_count, reservation_date, reservation_time } = req.body;
-
-    if (participant_count && participant_count !== reservation.participant_count) {
-      const event = await Event.findByPk(reservation.event_id);
-      const diff = participant_count - reservation.participant_count;
-      const remaining = event.capacity - event.current_registrations;
-      if (diff > 0 && remaining < diff) {
-        return sendError(res, `Yetersiz kontenjan. Eklenebilecek: ${remaining}`, 409);
-      }
-      await event.increment('current_registrations', { by: diff });
-      reservation.participant_count = participant_count;
-    }
-
-    if (reservation_date) reservation.reservation_date = reservation_date;
-    if (reservation_time) reservation.reservation_time = reservation_time;
-    await reservation.save();
-
-    sendSuccess(res, { reservation }, 'Rezervasyon güncellendi');
+    return sendSuccess(res, { reservation: result }, 'Rezervasyon güncellendi');
   } catch (err) {
-    sendError(res, 'Rezervasyon güncellenirken hata: ' + err.message, 500);
+    if (err.statusCode) return sendError(res, err.message, err.statusCode);
+    console.error('Rezervasyon güncelleme hatası:', err);
+    return sendError(res, 'Rezervasyon güncellenemedi', 500);
   }
 });
 
@@ -150,24 +143,30 @@ router.put('/:id', requireAuth, async (req, res) => {
 // └───────────────────────────────────────────────────────────────────────┘
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
-    const reservation = await Reservation.findOne({
-      where: { reservation_id: req.params.id, user_id: req.user.id }
+    await withInventoryTransaction(async transaction => {
+      const reservation = await Reservation.findOne({
+        where: { reservation_id: req.params.id, user_id: req.user.id }, transaction
+      });
+      if (!reservation) throw Object.assign(new Error('Rezervasyon bulunamadı'), { statusCode: 404 });
+      if (reservation.order_id) {
+        throw Object.assign(new Error('Ücretli rezervasyon iptali/iadesi için sipariş sayfasını kullanın'), { statusCode: 409 });
+      }
+      if (reservation.status !== 'confirmed') {
+        throw Object.assign(new Error('Rezervasyon zaten iptal edilmiş'), { statusCode: 409 });
+      }
+      const [changed] = await Reservation.update({ status: 'cancelled' }, {
+        where: { reservation_id: reservation.reservation_id,
+          user_id: req.user.id, order_id: null, status: 'confirmed' },
+        transaction
+      });
+      if (changed !== 1) throw Object.assign(new Error('Rezervasyon zaten değişti'), { statusCode: 409 });
+      await releaseEvent(reservation.event_id, reservation.participant_count, transaction);
     });
-    if (!reservation) return sendError(res, 'Rezervasyon bulunamadı', 404);
-    if (reservation.status === 'cancelled') {
-      return sendError(res, 'Bu rezervasyon zaten iptal edilmiş', 400);
-    }
-
-    // current_registrations geri azalt
-    const event = await Event.findByPk(reservation.event_id);
-    await event.decrement('current_registrations', { by: reservation.participant_count });
-
-    reservation.status = 'cancelled';
-    await reservation.save();
-
-    sendSuccess(res, null, 'Rezervasyon iptal edildi');
+    return sendSuccess(res, null, 'Rezervasyon iptal edildi, yer yeniden açıldı');
   } catch (err) {
-    sendError(res, 'Rezervasyon iptal edilirken hata: ' + err.message, 500);
+    if (err.statusCode) return sendError(res, err.message, err.statusCode);
+    console.error('Rezervasyon iptal hatası:', err);
+    return sendError(res, 'Rezervasyon iptal edilemedi', 500);
   }
 });
 

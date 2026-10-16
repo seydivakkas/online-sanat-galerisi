@@ -19,22 +19,37 @@ export default function EventDetail() {
     }).catch(() => {});
   }, [id]);
 
-  const handleAddToCart = (e) => {
+  const handleAddToCart = async (e) => {
     e.preventDefault();
     if (remaining < form.participant_count) {
       toast.error('Yetersiz kontenjan.');
       return;
     }
     
+    if (form.reservation_date !== event.event_date || form.reservation_time !== event.event_time) {
+      toast.error('Etkinlik yalnızca ilan edilen tarih ve saatte yapılacaktır.');
+      return;
+    }
+    if (Number(event.price) === 0) {
+      try {
+        await reservationAPI.create({
+          event_id: event.event_id, participant_count: form.participant_count,
+          reservation_date: event.event_date, reservation_time: event.event_time
+        });
+        toast.success('Ücretsiz etkinlik rezervasyonu onaylandı!');
+        const refreshed = await eventAPI.getById(id);
+        setEvent(refreshed.data);
+      } catch (err) {
+        toast.error(err.response?.data?.message || 'Rezervasyon yapılamadı');
+      }
+      return;
+    }
     addToCart({
-      item_type: 'event',
-      item_id: event.event_id,
-      title: event.title,
-      price: event.price,
-      quantity: form.participant_count,
-      max_quantity: remaining,
+      item_type: 'event', item_id: event.event_id, title: event.title,
+      price: event.price, quantity: form.participant_count, max_quantity: remaining,
+      reservation_date: event.event_date, reservation_time: event.event_time
     });
-    toast.success('Biletler sepete eklendi!');
+    toast.success('Bilet talebi sepete eklendi; ödeme sonrasında rezervasyon kesinleşecek.');
   };
 
   if (!event) return <div className="container py-5 text-center"><div className="spinner-border"></div></div>;
@@ -105,13 +120,12 @@ export default function EventDetail() {
                   </div>
                   <div className="mb-3">
                     <label className="form-label">Tarih</label>
-                    <input type="date" className="form-control" value={form.reservation_date}
-                      onChange={e => setForm({ ...form, reservation_date: e.target.value })} required />
+                    <input type="date" className="form-control" value={event.event_date} readOnly required />
+                    <small className="text-muted">Etkinliğin ilan edilmiş sabit oturumu</small>
                   </div>
                   <div className="mb-3">
                     <label className="form-label">Saat</label>
-                    <input type="time" className="form-control" value={form.reservation_time}
-                      onChange={e => setForm({ ...form, reservation_time: e.target.value })} required />
+                    <input type="time" className="form-control" value={event.event_time} readOnly required />
                   </div>
                   <div className="bg-light p-3 rounded mb-3">
                     <strong>Toplam: </strong>
@@ -119,7 +133,7 @@ export default function EventDetail() {
                       {(parseFloat(event.price) * form.participant_count).toLocaleString('tr-TR')} ₺
                     </span>
                   </div>
-                  <button className="btn btn-dark w-100">Sepete Ekle</button>
+                  <button className="btn btn-dark w-100">{Number(event.price) === 0 ? 'Ücretsiz Rezervasyonu Onayla' : 'Bilet Talebini Sepete Ekle'}</button>
                 </form>
               </div>
             </div>

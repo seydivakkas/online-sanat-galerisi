@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const { sequelize } = require('./models');
 const { sendError } = require('./utils/response');
+const { expirePendingOrders } = require('./services/orderHolds');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -49,6 +50,14 @@ async function start() {
     console.log('Veritabanı bağlantısı başarılı');
     await sequelize.sync();
     console.log('Tablolar senkronize edildi');
+    await expirePendingOrders();
+
+    // Background safety net: expired unpaid holds are also released on
+    // order reads/creation/verification. Multi-worker races use CAS updates.
+    const sweeper = setInterval(() => {
+      expirePendingOrders().catch(err => console.error('Stok ayırma süresi temizleme hatası:', err));
+    }, 60 * 1000);
+    sweeper.unref();
 
     app.listen(PORT, () => {
       console.log(`Sunucu http://localhost:${PORT} adresinde çalışıyor`);

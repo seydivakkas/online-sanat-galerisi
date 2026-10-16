@@ -158,13 +158,13 @@ test('unsupported card and PayPal checkouts are rejected before DB writes', asyn
   assert.equal(await Order.count(), beforeCount);
 });
 
-test('unsafe event ticket checkout is blocked before granting attendance', async () => {
+test('unrecognized event tickets cannot create an order or grant attendance', async () => {
   const beforeCount = await Order.count();
   const r = await api('POST', '/api/orders', 'customer', {
     payment_method: 'bank_transfer',
-    items: [{ item_type: 'event', item_id: 1, quantity: 1 }]
+    items: [{ item_type: 'event', item_id: 99999, quantity: 1 }]
   });
-  assert.equal(r.status, 409);
+  assert.equal(r.status, 404);
   assert.equal(await Order.count(), beforeCount);
 });
 
